@@ -121,12 +121,13 @@ class EventProcessor:
         self.event_handlers[event_type] = handler
         logger.info(f"Registered handler for event type: {event_type}")
     
-    async def process_event(self, event_data: Dict[str, Any]) -> bool:
+    async def process_event(self, event_data: Dict[str, Any], timeout: float = 30.0) -> bool:
         """
-        Process a single event.
+        Process a single event with timeout handling.
         
         Args:
             event_data: Raw event data from the stream
+            timeout: Processing timeout in seconds
             
         Returns:
             True if processing succeeded, False otherwise
@@ -138,19 +139,33 @@ class EventProcessor:
             # Extract event type
             event_type = event_data.get("resource_kind", "unknown")
             
-            # Route to appropriate handler
+            # Route to appropriate handler with timeout
             if event_type in self.event_handlers:
                 handler = self.event_handlers[event_type]
-                await handler(event_data)
+                try:
+                    await asyncio.wait_for(handler(event_data), timeout=timeout)
+                except asyncio.TimeoutError:
+                    logger.error(f"Event processing timeout after {timeout}s for event type: {event_type}")
+                    self.failed_events += 1
+                    return False
             else:
                 # Default handling - log and continue
                 logger.debug(f"No handler registered for event type: {event_type}")
-                await self._default_event_handler(event_data)
+                try:
+                    await asyncio.wait_for(self._default_event_handler(event_data), timeout=timeout)
+                except asyncio.TimeoutError:
+                    logger.error(f"Default event processing timeout after {timeout}s")
+                    self.failed_events += 1
+                    return False
             
             self.processed_events += 1
             logger.debug(f"Successfully processed event: {event_data.get('resource_id', 'unknown')}")
             return True
             
+        except EventValidationError as e:
+            logger.warning(f"Event validation failed: {e}")
+            self.failed_events += 1
+            return False
         except Exception as e:
             self.failed_events += 1
             logger.error(f"Failed to process event: {e}", exc_info=True)

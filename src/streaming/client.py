@@ -46,6 +46,23 @@ class StreamingClient:
         self._last_request_time: Optional[datetime] = None
         self._request_count_window: Dict[datetime, int] = {}
         
+        # Circuit breaker state
+        self._circuit_breaker_state = "closed"  # closed, open, half_open
+        self._failure_count = 0
+        self._success_count = 0
+        self._last_failure_time: Optional[datetime] = None
+        self._circuit_breaker_timeout = 60  # seconds
+        
+        # Error tracking
+        self._error_count = 0
+        self._error_types: Dict[str, int] = {}
+        self._last_error_time: Optional[datetime] = None
+        
+        # Degraded mode
+        self.is_degraded_mode = False
+        self.is_polling_mode = False
+        self.polling_interval = 30  # seconds
+        
         # Setup logging
         self._setup_logging()
         
@@ -102,8 +119,47 @@ class StreamingClient:
         self._request_count_window[minute_mark] = self._request_count_window.get(minute_mark, 0) + 1
         self._last_request_time = now
 
+    def _check_circuit_breaker(self) -> None:
+        """Check circuit breaker state and raise exception if open."""
+        if self._circuit_breaker_state == "open":
+            # Check if timeout has passed to move to half-open
+            if (self._last_failure_time and 
+                datetime.now() - self._last_failure_time > timedelta(seconds=self._circuit_breaker_timeout)):
+                self._circuit_breaker_state = "half_open"
+                logger.info("Circuit breaker moved to half-open state")
+            else:
+                raise Exception("Circuit breaker is open - API calls are being rejected")
+
+    def _record_success(self) -> None:
+        """Record successful operation for circuit breaker."""
+        self._success_count += 1
+        if self._circuit_breaker_state == "half_open":
+            # Close circuit breaker after successful operation
+            self._circuit_breaker_state = "closed"
+            self._failure_count = 0
+            logger.info("Circuit breaker closed after successful operation")
+
+    def _record_failure(self, error: Exception) -> None:
+        """Record failed operation for circuit breaker."""
+        self._failure_count += 1
+        self._error_count += 1
+        self._last_failure_time = datetime.now()
+        self._last_error_time = datetime.now()
+        
+        # Track error types
+        error_type = type(error).__name__
+        self._error_types[error_type] = self._error_types.get(error_type, 0) + 1
+        
+        # Open circuit breaker if failure threshold exceeded
+        if self._failure_count >= self.config.max_retries:
+            self._circuit_breaker_state = "open"
+            logger.warning(f"Circuit breaker opened after {self._failure_count} failures")
+
     async def connect(self) -> None:
         """Establish connection to the streaming API."""
+        # Check circuit breaker before attempting connection
+        self._check_circuit_breaker()
+        
         await self._wait_for_rate_limit()
         
         if self.session is None or self.session.closed:
@@ -132,8 +188,10 @@ class StreamingClient:
             self.is_connected = True
             self.last_heartbeat = datetime.now()
             self._connection_attempts = 0  # Reset on success
+            self._record_success()
             logger.info("Successfully connected to streaming API")
         except Exception as e:
+            self._record_failure(e)
             logger.error(f"Failed to connect to streaming API: {e}")
             await self.disconnect()
             raise
@@ -270,32 +328,44 @@ class StreamingClient:
                                 continue
                                 
                             # Parse JSON event
-                            event_data = json.loads(line)
-                            
-                            # Yield the event for external processing
-                            yield event_data
-                            
-                            # Also handle internally if handlers are registered
-                            await self._handle_event(event_data)
-                            
-                        except json.JSONDecodeError as e:
-                            logger.warning(f"Failed to parse JSON event: {e}")
-                            continue
+                            try:
+                                event_data = json.loads(line)
+                                
+                                # Check if we should process in degraded mode
+                                if not self.should_process_in_degraded_mode(event_data):
+                                    continue
+                                
+                                # Yield the event for external processing
+                                yield event_data
+                                
+                                # Also handle internally if handlers are registered
+                                await self._handle_event(event_data)
+                                
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"Failed to parse JSON event: {line[:100]}... - {e}")
+                                continue
+                            except UnicodeDecodeError as e:
+                                logger.warning(f"Failed to decode line: {e}")
+                                continue
+                            except Exception as e:
+                                logger.error(f"Error processing stream event: {e}")
+                                continue
                         except Exception as e:
-                            logger.error(f"Error processing stream event: {e}")
+                            logger.error(f"Error processing stream line: {e}")
                             continue
-                            
+                                
             except (ClientConnectorError, ServerTimeoutError, asyncio.TimeoutError) as e:
                 retries += 1
+                self._record_failure(e)
                 logger.error(f"Stream connection failed (attempt {retries}): {e}")
                 
                 if retries >= self.config.max_retries:
-                    logger.error("Max retries exceeded, giving up")
+                    logger.error("Max retries exceeded, enabling degraded mode")
+                    self.enable_degraded_mode()
                     raise
                 
-                # Exponential backoff with jitter
-                jitter = random.uniform(0.1, 0.3) * backoff
-                wait_time = min(backoff + jitter, self.config.max_backoff)
+                # Use adaptive retry delay
+                wait_time = self.calculate_retry_delay(e, retries)
                 logger.info(f"Retrying in {wait_time:.2f} seconds...")
                 await asyncio.sleep(wait_time)
                 backoff *= 2
@@ -303,7 +373,11 @@ class StreamingClient:
                 # Reconnect session if needed
                 if self.session and self.session.closed:
                     await self.disconnect()
-                    await self.connect()
+                    try:
+                        await self.connect()
+                    except Exception as reconnect_error:
+                        self._record_failure(reconnect_error)
+                        # Continue with retry loop
             except Exception as e:
                 retries += 1
                 logger.error(f"Unexpected error in stream (attempt {retries}): {e}")
@@ -435,6 +509,115 @@ class StreamingClient:
         time_since_heartbeat = (datetime.now() - self.last_heartbeat).total_seconds()
         return time_since_heartbeat < self.config.health_check_interval
     
+    def enable_degraded_mode(self) -> None:
+        """Enable degraded mode for graceful degradation."""
+        self.is_degraded_mode = True
+        logger.warning("Streaming client enabled degraded mode")
+
+    def should_process_in_degraded_mode(self, event_data: Dict[str, Any]) -> bool:
+        """Determine if event should be processed in degraded mode."""
+        if not self.is_degraded_mode:
+            return True
+            
+        # In degraded mode, only process critical events (strike-off status)
+        if event_data.get('resource_kind') == 'company-profile':
+            company_data = event_data.get('data', {})
+            company_status = company_data.get('company_status', '').lower()
+            
+            # Process strike-off related status changes
+            strike_off_statuses = [
+                "active-proposal-to-strike-off",
+                "proposal-to-strike-off"
+            ]
+            
+            return any(status.lower() in company_status for status in strike_off_statuses)
+        
+        return False
+
+    async def fallback_to_polling(self) -> None:
+        """Fallback to polling mode when streaming fails."""
+        self.is_polling_mode = True
+        logger.info(f"Switched to polling mode with {self.polling_interval}s interval")
+
+    async def attempt_recovery(self) -> bool:
+        """Attempt to recover from degraded mode."""
+        try:
+            # Try to establish connection
+            await self.connect()
+            
+            # If successful, disable degraded mode
+            self.is_degraded_mode = False
+            self.is_polling_mode = False
+            logger.info("Successfully recovered from degraded mode")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Recovery attempt failed: {e}")
+            return False
+
+    def calculate_retry_delay(self, error: Exception, attempt: int) -> float:
+        """Calculate adaptive retry delay based on error type."""
+        if isinstance(error, ClientResponseError):
+            if error.status == 429:
+                # Rate limit error - use Retry-After header
+                retry_after = error.headers.get('Retry-After', '60')
+                try:
+                    return float(retry_after)
+                except ValueError:
+                    return 60.0
+            elif 500 <= error.status < 600:
+                # Server errors - use shorter backoff
+                return min(self.config.initial_backoff * (2 ** (attempt - 1)), 
+                          self.config.max_backoff / 2)
+        
+        elif isinstance(error, (ClientConnectorError, asyncio.TimeoutError)):
+            # Network errors - use exponential backoff with jitter
+            backoff = self.config.initial_backoff * (2 ** (attempt - 1))
+            jitter = random.uniform(0.1, 0.3) * backoff
+            return min(backoff + jitter, self.config.max_backoff)
+        
+        # Default backoff for other errors
+        return self.config.initial_backoff
+
+    def get_circuit_breaker_metrics(self) -> Dict[str, Any]:
+        """Get circuit breaker metrics."""
+        return {
+            'state': self._circuit_breaker_state,
+            'failure_count': self._failure_count,
+            'success_count': self._success_count,
+            'last_failure_time': self._last_failure_time.isoformat() if self._last_failure_time else None,
+            'open_duration': (datetime.now() - self._last_failure_time).total_seconds() 
+                           if self._last_failure_time and self._circuit_breaker_state == "open" else 0
+        }
+
+    def get_error_metrics(self) -> Dict[str, Any]:
+        """Get error metrics."""
+        now = datetime.now()
+        error_rate = 0.0
+        
+        if self._last_error_time:
+            time_window = max((now - self._last_error_time).total_seconds(), 1)
+            error_rate = self._error_count / time_window
+        
+        return {
+            'total_errors': self._error_count,
+            'error_types': dict(self._error_types),
+            'last_error_time': self._last_error_time.isoformat() if self._last_error_time else None,
+            'error_rate': error_rate
+        }
+
+    def get_health_status(self) -> Dict[str, Any]:
+        """Get comprehensive health status."""
+        return {
+            'is_connected': self.is_connected,
+            'last_heartbeat': self.last_heartbeat.isoformat() if self.last_heartbeat else None,
+            'circuit_breaker_state': self._circuit_breaker_state,
+            'error_count': self._error_count,
+            'degraded_mode': self.is_degraded_mode,
+            'polling_mode': self.is_polling_mode,
+            'connection_attempts': self._connection_attempts
+        }
+
     async def shutdown(self) -> None:
         """Gracefully shutdown the streaming client."""
         logger.info("Shutting down streaming client...")
