@@ -66,12 +66,12 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 ### Week 3: Error Handling and Resilience
 
 **Task 3.1: Connection Management (TDD)**
-- [ ] Write tests for connection failure scenarios
-- [ ] Implement automatic reconnection logic
-- [ ] Write tests for exponential backoff
-- [ ] Implement exponential backoff with jitter
-- [ ] Write tests for rate limit handling
-- [ ] Implement API rate limit compliance
+- [x] Write tests for connection failure scenarios
+- [x] Implement automatic reconnection logic
+- [x] Write tests for exponential backoff
+- [x] Implement exponential backoff with jitter
+- [x] Write tests for rate limit handling
+- [x] Implement API rate limit compliance
 
 **Task 3.2: Error Handling (TDD)**
 - [ ] Write tests for various error scenarios
