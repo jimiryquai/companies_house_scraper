@@ -469,3 +469,444 @@ class StreamingDatabase:
             "total_events": total_events["total"] or 0,
             "event_types": event_types
         }
+
+    # Data Consistency Methods
+    def transaction(self):
+        """Get a database transaction context manager."""
+        return self.manager.transaction()
+
+    async def execute_query(self, query: str, params: tuple = (), connection=None) -> List[Dict[str, Any]]:
+        """Execute a query, optionally within a specific connection/transaction."""
+        if connection:
+            cursor = await connection.execute(query, params)
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+        else:
+            return await self.manager.fetch_all(query, params)
+
+    async def upsert_company_with_conflict_resolution(self, company: CompanyRecord) -> Dict[str, Any]:
+        """
+        Upsert company with conflict resolution between bulk and stream data.
+        
+        Args:
+            company: CompanyRecord instance to upsert
+            
+        Returns:
+            Dictionary with operation result and conflict resolution info
+        """
+        async with self.transaction() as tx:
+            # Check for existing record
+            existing_query = "SELECT * FROM companies WHERE company_number = ?"
+            existing_rows = await self.execute_query(existing_query, (company.company_number,), tx)
+            
+            if not existing_rows:
+                # No conflict - insert new record
+                await self._insert_company_record(company, tx)
+                return {
+                    "action": "inserted",
+                    "company_number": company.company_number,
+                    "conflict_resolution": None
+                }
+            
+            existing = CompanyRecord.from_dict(existing_rows[0])
+            
+            # Determine conflict resolution strategy
+            resolution_result = self._resolve_data_conflict(existing, company)
+            
+            if resolution_result["action"] == "skip":
+                return {
+                    "action": "skipped",
+                    "company_number": company.company_number,
+                    "conflict_resolution": resolution_result
+                }
+            
+            # Apply resolution
+            merged_company = resolution_result["merged_company"]
+            await self._update_company_record(merged_company, tx)
+            
+            return {
+                "action": resolution_result["action"],
+                "company_number": company.company_number,
+                "conflict_resolution": {
+                    "strategy": resolution_result["strategy"],
+                    "previous_data_source": existing.data_source,
+                    "new_data_source": company.data_source,
+                    "merged_fields": resolution_result.get("merged_fields", [])
+                }
+            }
+
+    def _resolve_data_conflict(self, existing: CompanyRecord, new: CompanyRecord) -> Dict[str, Any]:
+        """
+        Resolve conflicts between existing and new company data.
+        
+        Args:
+            existing: Existing company record
+            new: New company record to merge
+            
+        Returns:
+            Dictionary with resolution strategy and merged result
+        """
+        now = datetime.now()
+        
+        # Parse timestamps
+        existing_time = None
+        if existing.stream_last_updated:
+            try:
+                existing_time = datetime.fromisoformat(existing.stream_last_updated.replace('Z', '+00:00'))
+            except (ValueError, AttributeError):
+                existing_time = None
+        
+        new_time = None
+        if new.stream_last_updated:
+            try:
+                new_time = datetime.fromisoformat(new.stream_last_updated.replace('Z', '+00:00'))
+            except (ValueError, AttributeError):
+                new_time = None
+        
+        # Rule 1: Stream data always wins over bulk data (when stream data is recent)
+        if new.data_source == "stream" and existing.data_source == "bulk":
+            merged = self._merge_company_records(existing, new, prefer_new=True)
+            return {
+                "action": "updated",
+                "strategy": "stream_over_bulk",
+                "merged_company": merged,
+                "merged_fields": self._get_changed_fields(existing, merged)
+            }
+        
+        # Rule 2: Don't overwrite recent stream data with bulk data
+        if new.data_source == "bulk" and existing.data_source == "stream":
+            if existing_time and (now - existing_time).total_seconds() < 3600:  # 1 hour threshold
+                return {
+                    "action": "skip",
+                    "strategy": "protect_recent_stream",
+                    "reason": "Recent stream data protected from bulk overwrite"
+                }
+        
+        # Rule 3: Newer data wins (if both have timestamps)
+        if existing_time and new_time:
+            if new_time > existing_time:
+                merged = self._merge_company_records(existing, new, prefer_new=True)
+                return {
+                    "action": "updated",
+                    "strategy": "newer_wins",
+                    "merged_company": merged,
+                    "merged_fields": self._get_changed_fields(existing, merged)
+                }
+            else:
+                return {
+                    "action": "skip",
+                    "strategy": "older_data",
+                    "reason": "Existing data is newer"
+                }
+        
+        # Rule 4: Intelligent merge - combine best of both
+        merged = self._merge_company_records(existing, new, prefer_new=False)
+        return {
+            "action": "merged",
+            "strategy": "intelligent_merge",
+            "merged_company": merged,
+            "merged_fields": self._get_changed_fields(existing, merged)
+        }
+
+    def _merge_company_records(self, existing: CompanyRecord, new: CompanyRecord, prefer_new: bool = False) -> CompanyRecord:
+        """
+        Merge two company records intelligently.
+        
+        Args:
+            existing: Existing company record
+            new: New company record
+            prefer_new: Whether to prefer new values when both exist
+            
+        Returns:
+            Merged CompanyRecord
+        """
+        # Start with existing record
+        merged_data = existing.to_dict()
+        
+        # Update with new data, applying merge logic
+        new_data = new.to_dict()
+        
+        for field, new_value in new_data.items():
+            if field == "company_number":
+                continue  # Don't change company number
+            
+            existing_value = merged_data.get(field)
+            
+            if new_value is not None:
+                if existing_value is None:
+                    # New field has value, existing doesn't - use new
+                    merged_data[field] = new_value
+                elif prefer_new:
+                    # Prefer new value
+                    merged_data[field] = new_value
+                elif field in ["stream_last_updated", "last_stream_event_id", "stream_metadata"]:
+                    # Always use stream-specific fields from newer data
+                    if new.data_source == "stream":
+                        merged_data[field] = new_value
+                elif len(str(new_value)) > len(str(existing_value)):
+                    # Use longer/more complete value
+                    merged_data[field] = new_value
+        
+        # Update data source and metadata
+        if new.data_source == "stream" or existing.data_source == "stream":
+            merged_data["data_source"] = "both"
+        
+        # Add conflict history to metadata
+        if merged_data.get("stream_metadata"):
+            if isinstance(merged_data["stream_metadata"], str):
+                try:
+                    metadata = json.loads(merged_data["stream_metadata"])
+                except json.JSONDecodeError:
+                    metadata = {}
+            else:
+                metadata = merged_data["stream_metadata"] or {}
+        else:
+            metadata = {}
+        
+        if "conflict_history" not in metadata:
+            metadata["conflict_history"] = []
+        
+        metadata["conflict_history"].append({
+            "timestamp": datetime.now().isoformat(),
+            "previous_source": existing.data_source,
+            "new_source": new.data_source,
+            "merge_strategy": "intelligent" if not prefer_new else "prefer_new"
+        })
+        
+        merged_data["stream_metadata"] = metadata
+        
+        return CompanyRecord.from_dict(merged_data)
+
+    def _get_changed_fields(self, existing: CompanyRecord, merged: CompanyRecord) -> List[str]:
+        """Get list of fields that changed during merge."""
+        changed = []
+        existing_dict = existing.to_dict()
+        merged_dict = merged.to_dict()
+        
+        for field, merged_value in merged_dict.items():
+            existing_value = existing_dict.get(field)
+            if existing_value != merged_value:
+                changed.append(field)
+        
+        return changed
+
+    async def _insert_company_record(self, company: CompanyRecord, connection) -> None:
+        """Insert a company record within a transaction."""
+        company_dict = company.to_dict()
+        
+        # Convert stream_metadata to JSON string if needed
+        if isinstance(company_dict.get("stream_metadata"), dict):
+            company_dict["stream_metadata"] = json.dumps(company_dict["stream_metadata"])
+        
+        columns = list(company_dict.keys())
+        placeholders = ", ".join("?" * len(columns))
+        columns_str = ", ".join(columns)
+        
+        query = f"INSERT INTO companies ({columns_str}) VALUES ({placeholders})"
+        await connection.execute(query, tuple(company_dict.values()))
+
+    async def _update_company_record(self, company: CompanyRecord, connection) -> None:
+        """Update a company record within a transaction."""
+        company_dict = company.to_dict()
+        
+        # Convert stream_metadata to JSON string if needed
+        if isinstance(company_dict.get("stream_metadata"), dict):
+            company_dict["stream_metadata"] = json.dumps(company_dict["stream_metadata"])
+        
+        set_clause = ", ".join(f"{k} = ?" for k in company_dict.keys() if k != "company_number")
+        values = [v for k, v in company_dict.items() if k != "company_number"]
+        values.append(company.company_number)
+        
+        query = f"UPDATE companies SET {set_clause} WHERE company_number = ?"
+        await connection.execute(query, tuple(values))
+
+    async def upsert_company_with_validation(self, company: CompanyRecord) -> None:
+        """
+        Upsert company with data validation.
+        
+        Args:
+            company: CompanyRecord to validate and upsert
+            
+        Raises:
+            DatabaseError: If validation fails
+        """
+        # Validate company data
+        self._validate_company_record(company)
+        
+        # Proceed with upsert
+        result = await self.upsert_company_with_conflict_resolution(company)
+        return result
+
+    def _validate_company_record(self, company: CompanyRecord) -> None:
+        """
+        Validate a company record for data integrity.
+        
+        Args:
+            company: CompanyRecord to validate
+            
+        Raises:
+            DatabaseError: If validation fails
+        """
+        # Validate company number
+        if not company.company_number:
+            raise DatabaseError("Invalid company number: empty")
+        
+        if len(company.company_number) < 4 or len(company.company_number) > 12:
+            raise DatabaseError("Invalid company number: length must be 4-12 characters")
+        
+        if not company.company_number.isalnum():
+            raise DatabaseError("Invalid company number: must be alphanumeric")
+        
+        # Validate required fields for new records
+        if not company.company_name:
+            raise DatabaseError("Missing required field: company_name")
+        
+        # Validate date formats
+        if company.incorporation_date:
+            try:
+                datetime.strptime(company.incorporation_date, "%Y-%m-%d")
+            except ValueError:
+                raise DatabaseError("Invalid date format: incorporation_date must be YYYY-MM-DD")
+        
+        # Validate SIC codes
+        if company.sic_codes:
+            sic_codes = company.sic_codes.split(",")
+            for sic_code in sic_codes:
+                sic_code = sic_code.strip()
+                if not sic_code.isdigit() or len(sic_code) != 5:
+                    raise DatabaseError(f"Invalid SIC code: {sic_code}")
+        
+        # Validate address fields length
+        address_fields = [
+            company.address_line_1, company.address_line_2, 
+            company.locality, company.region, company.country
+        ]
+        for field in address_fields:
+            if field and len(field) > 200:
+                raise DatabaseError("Address field too long: maximum 200 characters")
+        
+        # Validate company status
+        if company.company_status:
+            valid_statuses = [
+                "active", "dissolved", "liquidation", "receivership", 
+                "administration", "voluntary-arrangement", "converted-closed",
+                "active-proposal-to-strike-off", "struck-off"
+            ]
+            if company.company_status not in valid_statuses:
+                raise DatabaseError(f"Invalid company status: {company.company_status}")
+        
+        # Validate status consistency
+        if (company.company_status == "active" and 
+            company.company_status_detail and 
+            "dissolved" in company.company_status_detail.lower()):
+            raise DatabaseError("Inconsistent status: active status with dissolved detail")
+        
+        # Validate stream metadata
+        if company.stream_metadata:
+            try:
+                if isinstance(company.stream_metadata, dict):
+                    json.dumps(company.stream_metadata)  # Test JSON serialization
+                elif isinstance(company.stream_metadata, str):
+                    json.loads(company.stream_metadata)  # Test JSON parsing
+            except (TypeError, json.JSONDecodeError):
+                raise DatabaseError("Invalid stream metadata: must be valid JSON")
+
+    async def get_consistency_metrics(self) -> Dict[str, Any]:
+        """Get data consistency metrics."""
+        # Count conflicts by type
+        conflict_query = """
+            SELECT 
+                COUNT(*) as total_conflicts,
+                data_source,
+                COUNT(*) as count
+            FROM companies 
+            WHERE stream_metadata LIKE '%conflict_history%'
+            GROUP BY data_source
+        """
+        
+        conflict_stats = await self.manager.fetch_all(conflict_query, ())
+        
+        total_conflicts = sum(row["count"] for row in conflict_stats)
+        
+        return {
+            "total_conflicts": total_conflicts,
+            "conflicts_by_type": {row["data_source"]: row["count"] for row in conflict_stats},
+            "resolution_strategies": {
+                "stream_over_bulk": 0,  # Would need more complex query to get actual counts
+                "intelligent_merge": 0,
+                "newer_wins": 0
+            }
+        }
+
+    async def get_data_quality_metrics(self) -> Dict[str, Any]:
+        """Get data quality metrics."""
+        # Count total companies
+        total_query = "SELECT COUNT(*) as total FROM companies"
+        total_result = await self.manager.fetch_one(total_query, ())
+        total_companies = total_result["total"]
+        
+        # Count field completeness
+        completeness_query = """
+            SELECT 
+                COUNT(CASE WHEN company_name IS NOT NULL THEN 1 END) as name_count,
+                COUNT(CASE WHEN company_status IS NOT NULL THEN 1 END) as status_count,
+                COUNT(CASE WHEN incorporation_date IS NOT NULL THEN 1 END) as date_count,
+                COUNT(CASE WHEN address_line_1 IS NOT NULL THEN 1 END) as address_count,
+                COUNT(CASE WHEN sic_codes IS NOT NULL THEN 1 END) as sic_count
+            FROM companies
+        """
+        
+        completeness_result = await self.manager.fetch_one(completeness_query, ())
+        
+        # Calculate completeness scores
+        field_coverage = {}
+        completeness_score = 0
+        if total_companies > 0:
+            for field in ["name_count", "status_count", "date_count", "address_count", "sic_count"]:
+                coverage = (completeness_result[field] / total_companies) * 100
+                field_coverage[field.replace("_count", "")] = coverage
+                completeness_score += coverage
+            
+            completeness_score = completeness_score / 5  # Average across fields
+        
+        return {
+            "total_companies": total_companies,
+            "completeness_score": completeness_score,
+            "field_coverage": field_coverage
+        }
+
+    async def get_consistency_health_status(self) -> Dict[str, Any]:
+        """Get overall data consistency health status."""
+        metrics = await self.get_consistency_metrics()
+        quality_metrics = await self.get_data_quality_metrics()
+        
+        # Determine health status
+        issues = []
+        recommendations = []
+        
+        if metrics["total_conflicts"] > 100:
+            issues.append("High number of data conflicts detected")
+            recommendations.append("Review conflict resolution strategies")
+        
+        if quality_metrics["completeness_score"] < 70:
+            issues.append("Low data completeness score")
+            recommendations.append("Improve data collection processes")
+        
+        # Determine overall status
+        if len(issues) == 0:
+            status = "healthy"
+        elif len(issues) <= 2:
+            status = "warning"
+        else:
+            status = "critical"
+        
+        return {
+            "status": status,
+            "issues": issues,
+            "recommendations": recommendations,
+            "last_check": datetime.now().isoformat(),
+            "metrics": {
+                "conflicts": metrics["total_conflicts"],
+                "completeness": quality_metrics["completeness_score"]
+            }
+        }
