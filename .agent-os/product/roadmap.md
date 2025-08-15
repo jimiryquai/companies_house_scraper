@@ -78,20 +78,22 @@
 ## Phase 3: Cloud Deployment & Scale
 
 **Goal:** Deploy to cloud infrastructure for reliable, scalable operation
-**Success Criteria:** System running reliably in cloud, handling full UK company dataset, sub-second query response times
+**Success Criteria:** System running reliably in cloud, handling full UK company dataset during business hours, sub-second query response times
 
 ### Features
 
-- [ ] Cloudflare Workers deployment - Serverless execution environment for scalable processing `L`
-- [ ] Cloudflare D1 database migration - Cloud-native database for improved performance and reliability `L`
+- [ ] Render deployment - Background Worker for streaming service with business hours scheduling `M`
+- [ ] Database optimization - SQLite on persistent disk with proper indexing and WAL mode `S`
 - [ ] Web interface development - User-friendly dashboard for lead management and monitoring `XL`
 - [ ] Advanced filtering and search - Complex query capabilities with saved searches and alerts `M`
 - [ ] API development - RESTful API for external integrations and mobile applications `L`
 - [ ] Monitoring and analytics - Comprehensive system monitoring and lead generation analytics `M`
+- [ ] Cost optimization - Automated start/stop during UK business hours to minimize costs `S`
 
 ### Dependencies
 
-- Cloudflare account and service configuration
-- Database migration strategy and testing
+- Render account and service configuration
+- GitHub repository for auto-deployment
+- Persistent disk setup for SQLite database
 - UI/UX design for web interface
 - Security and authentication implementation

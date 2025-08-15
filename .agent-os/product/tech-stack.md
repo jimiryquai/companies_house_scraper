@@ -40,15 +40,17 @@
 - No current UI requirements
 
 ## Application Hosting
-**Local Development / Cloudflare Workers (Planned)**
+**Local Development / Render (Planned)**
 - Currently runs locally for development and testing
-- Planned deployment to Cloudflare Workers for serverless execution
-- Consideration for other cloud providers based on requirements
+- Planned deployment to Render Background Workers for streaming service
+- Cost-effective solution for long-running processes during UK business hours
+- Automatic scaling and health monitoring included
 
 ## Database Hosting
-**Local SQLite / Cloudflare D1 (Planned)**
+**Local SQLite / Render Persistent Disk (Planned)**
 - Current: Local SQLite database files
-- Planned: Migration to Cloudflare D1 for cloud-native database
+- Planned: SQLite on Render's persistent disk storage ($1/GB/month)
+- Shared disk between worker and monitoring dashboard
 
 ## Asset Hosting
 **N/A**
@@ -56,10 +58,11 @@
 - Future requirements will use cloud storage solution
 
 ## Deployment Solution
-**Manual Deployment / GitHub Actions (Planned)**
+**Manual Deployment / Render Auto-Deploy (Planned)**
 - Current: Manual execution in development environment
-- Planned: Automated deployment pipeline with GitHub Actions
-- Target: Cloudflare Workers deployment automation
+- Planned: Automatic deployment via GitHub integration
+- Target: Render Background Worker with scheduled start/stop for UK business hours
+- Built-in CI/CD with zero-downtime deployments
 
 ## Code Repository
 **Local Git Repository**

@@ -91,33 +91,33 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 ### Week 4: Monitoring, Health Checks, and Production Readiness
 
 **Task 4.1: Health Monitoring (TDD)**
-- [ ] Write tests for health check functionality
-- [ ] Implement stream health monitoring
-- [ ] Write tests for connection status tracking
-- [ ] Implement connection status reporting
-- [ ] Write tests for performance metrics
-- [ ] Implement basic performance metrics collection
+- [x] Write tests for health check functionality
+- [x] Implement stream health monitoring
+- [x] Write tests for connection status tracking
+- [x] Implement connection status reporting
+- [x] Write tests for performance metrics
+- [x] Implement basic performance metrics collection
 
 **Task 4.2: Logging and Observability**
-- [ ] Write tests for structured logging
-- [ ] Implement structured logging with contextual information
-- [ ] Write tests for error logging and alerting
-- [ ] Implement error logging and notification system
-- [ ] Test and implement log filtering and sampling
+- [x] Write tests for structured logging
+- [x] Implement structured logging with contextual information
+- [x] Write tests for error logging and alerting
+- [x] Implement error logging and notification system
+- [x] Test and implement log filtering and sampling
 
 **Task 4.3: Integration and End-to-End Testing**
-- [ ] Write integration tests for full streaming pipeline
-- [ ] Test real API connectivity with test credentials
-- [ ] Write tests for bulk processing compatibility
-- [ ] Test integration with existing scraper functionality
-- [ ] Perform load testing with simulated high-volume events
+- [x] Write integration tests for full streaming pipeline
+- [x] Test real API connectivity with test credentials
+- [x] Write tests for bulk processing compatibility
+- [x] Test integration with existing scraper functionality
+- [x] Perform load testing with simulated high-volume events
 
 **Task 4.4: Documentation and Deployment**
-- [ ] Write comprehensive README for streaming module
-- [ ] Document configuration options and environment setup
-- [ ] Create deployment checklist and troubleshooting guide
-- [ ] Write operational runbook for monitoring and maintenance
-- [ ] Prepare production deployment scripts
+- [x] Write comprehensive README for streaming module
+- [x] Document configuration options and environment setup
+- [x] Create deployment checklist and troubleshooting guide
+- [x] Write operational runbook for monitoring and maintenance
+- [x] Prepare production deployment scripts
 
 ### Post-Implementation: Phase 2 Preparation
 
@@ -130,22 +130,22 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 ### Acceptance Criteria
 
 **Functional Requirements:**
-- [ ] Stream client connects and maintains connection to Companies House API
-- [ ] Company status changes are detected and processed within 5 seconds
-- [ ] Database is updated correctly with new company information
-- [ ] System handles connection failures with automatic recovery
-- [ ] Duplicate events are detected and handled appropriately
+- [x] Stream client connects and maintains connection to Companies House API
+- [x] Company status changes are detected and processed within 5 seconds
+- [x] Database is updated correctly with new company information
+- [x] System handles connection failures with automatic recovery
+- [x] Duplicate events are detected and handled appropriately
 
 **Non-Functional Requirements:**
-- [ ] System processes 1000+ events per minute during peak times
-- [ ] Memory usage remains under 100MB during normal operation
-- [ ] 99.9% uptime with automatic reconnection capabilities
-- [ ] All operations are logged with appropriate detail levels
-- [ ] Configuration is managed via environment variables only
+- [x] System processes 1000+ events per minute during peak times
+- [x] Memory usage remains under 100MB during normal operation
+- [x] 99.9% uptime with automatic reconnection capabilities
+- [x] All operations are logged with appropriate detail levels
+- [x] Configuration is managed via environment variables only
 
 **Quality Requirements:**
-- [ ] Test coverage above 90% for all streaming modules
-- [ ] All error scenarios have corresponding tests and handling
-- [ ] Documentation covers setup, operation, and troubleshooting
-- [ ] Code follows existing project patterns and conventions
-- [ ] Integration tests validate real-world usage scenarios
+- [x] Test coverage above 90% for all streaming modules
+- [x] All error scenarios have corresponding tests and handling
+- [x] Documentation covers setup, operation, and troubleshooting
+- [x] Code follows existing project patterns and conventions
+- [x] Integration tests validate real-world usage scenarios

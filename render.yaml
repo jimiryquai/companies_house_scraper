@@ -1,0 +1,119 @@
+# Render deployment configuration for Companies House Streaming Service
+# This runs as a background worker during UK business hours only
+
+services:
+  # Background worker for streaming service
+  - type: worker
+    name: companies-house-streaming
+    runtime: python
+    plan: starter  # $7/month
+    branch: main
+
+    # Build configuration
+    buildCommand: pip install -r requirements.txt
+
+    # Start command for the streaming service
+    startCommand: python src/streaming/main.py
+
+    # Environment variables (set in Render dashboard for security)
+    envVars:
+      - key: COMPANIES_HOUSE_API_KEY
+        sync: false  # Set manually in dashboard
+      - key: STREAMING_API_URL
+        value: https://stream.companieshouse.gov.uk/companies
+      - key: DATABASE_PATH
+        value: /opt/render/project/data/companies.db
+      - key: LOG_LEVEL
+        value: INFO
+      - key: PYTHON_VERSION
+        value: 3.12
+      - key: TZ
+        value: Europe/London  # UK timezone for business hours
+      - key: MAX_RETRIES
+        value: 10
+      - key: BUFFER_SIZE
+        value: 1000
+      - key: BATCH_SIZE
+        value: 100
+      - key: HEALTH_CHECK_INTERVAL
+        value: 60
+      - key: ERROR_ALERT_THRESHOLD
+        value: 10
+
+    # Persistent disk for SQLite database
+    disk:
+      name: companies-data
+      mountPath: /opt/render/project/data
+      sizeGB: 10  # $1/month per GB after 1GB free
+
+    # Health check endpoint
+    healthCheckPath: /health
+
+    # Auto-deploy on git push
+    autoDeploy: true
+
+  # Cron job to start service at 8:30 AM UK time (Mon-Fri)
+  - type: cron
+    name: start-streaming-service
+    runtime: python
+    schedule: "30 8 * * 1-5"  # 8:30 AM Monday-Friday UK time
+    buildCommand: pip install requests
+    command: python deploy/render_scheduler.py start
+    envVars:
+      - key: RENDER_API_KEY
+        sync: false  # Set manually in dashboard
+      - key: SERVICE_ID
+        sync: false  # Set to the worker service ID
+
+  # Cron job to stop service at 5:30 PM UK time (Mon-Fri)
+  - type: cron
+    name: stop-streaming-service
+    runtime: python
+    schedule: "30 17 * * 1-5"  # 5:30 PM Monday-Friday UK time
+    buildCommand: pip install requests
+    command: python deploy/render_scheduler.py stop
+    envVars:
+      - key: RENDER_API_KEY
+        sync: false  # Set manually in dashboard
+      - key: SERVICE_ID
+        sync: false  # Set to the worker service ID
+
+  # Monitoring Dashboard with Grafana
+  - type: web
+    name: companies-house-monitoring
+    runtime: docker
+    dockerfilePath: ./deploy/Dockerfile.grafana
+    plan: free  # Included in Pro plan credits
+    branch: main
+    envVars:
+      - key: GF_SECURITY_ADMIN_USER
+        value: admin
+      - key: GF_SECURITY_ADMIN_PASSWORD
+        sync: false  # Set in dashboard
+      - key: GF_INSTALL_PLUGINS
+        value: frser-sqlite-datasource
+      - key: DATABASE_PATH
+        value: /opt/render/project/data/companies.db
+    disk:
+      name: companies-data  # Share disk with worker
+      mountPath: /opt/render/project/data
+      sizeGB: 10
+    # Grafana runs on port 3000 by default
+
+  # Lightweight metrics collector
+  - type: web
+    name: companies-house-metrics
+    runtime: python
+    plan: free  # Included in Pro plan credits
+    branch: main
+    buildCommand: pip install -r requirements.txt fastapi uvicorn prometheus-client
+    startCommand: uvicorn src.monitoring.metrics_server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_PATH
+        value: /opt/render/project/data/companies.db
+      - key: METRICS_INTERVAL
+        value: 60
+    disk:
+      name: companies-data  # Share disk with worker
+      mountPath: /opt/render/project/data
+      sizeGB: 10
