@@ -1,13 +1,14 @@
-"""Stream Health Monitoring
+"""Stream Health Monitoring.
 
 Provides comprehensive health monitoring capabilities for the streaming client,
 including connection health, performance metrics, and status reporting.
 """
 
 import asyncio
+import contextlib
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 if TYPE_CHECKING:
     import asyncio
@@ -57,7 +58,7 @@ class ErrorMetrics:
     """Error-related metrics."""
 
     total_errors: int = 0
-    error_types: Dict[str, int] = field(default_factory=dict)
+    error_types: dict[str, int] = field(default_factory=dict)
     last_error_time: Optional[datetime] = None
     error_rate_per_minute: float = 0.0
     critical_errors: int = 0
@@ -99,8 +100,8 @@ class HealthMonitor:
 
         # Health status
         self.current_status = HealthStatus.HEALTHY
-        self.status_history: List[
-            Tuple[datetime, HealthStatus, str]
+        self.status_history: list[
+            tuple[datetime, HealthStatus, str]
         ] = []  # (timestamp, status, reason)
 
         # Monitoring state
@@ -119,11 +120,11 @@ class HealthMonitor:
         }
 
         # Callbacks for health status changes
-        self.status_change_callbacks: List[Callable[..., None]] = []
+        self.status_change_callbacks: list[Callable[..., None]] = []
 
         # Event timing tracking
-        self._event_timestamps: List[datetime] = []
-        self._processing_times: List[float] = []
+        self._event_timestamps: list[datetime] = []
+        self._processing_times: list[float] = []
 
     def register_status_change_callback(self, callback: Callable[..., None]) -> None:
         """Register callback for health status changes."""
@@ -148,10 +149,8 @@ class HealthMonitor:
         self.monitoring_active = False
         if self.monitoring_task:
             self.monitoring_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self.monitoring_task
-            except asyncio.CancelledError:
-                pass
 
         logger.info("Stopped health monitoring")
 
@@ -196,10 +195,9 @@ class HealthMonitor:
         if hasattr(self.client, "_connection_attempts"):
             self.connection_metrics.connection_attempts = self.client._connection_attempts
 
-        if self.client.is_connected:
-            if not self.connection_metrics.last_connection_time:
-                self.connection_metrics.successful_connections += 1
-                self.connection_metrics.last_connection_time = datetime.now()
+        if self.client.is_connected and not self.connection_metrics.last_connection_time:
+            self.connection_metrics.successful_connections += 1
+            self.connection_metrics.last_connection_time = datetime.now()
 
         # Update connection uptime
         if self.connection_metrics.last_connection_time:
@@ -248,7 +246,6 @@ class HealthMonitor:
         """Update performance-related metrics."""
         try:
             import os
-            import time
 
             import psutil
 
@@ -371,7 +368,7 @@ class HealthMonitor:
 
         self.connection_metrics.connection_attempts += 1
 
-    def get_performance_summary(self) -> Dict[str, Any]:
+    def get_performance_summary(self) -> dict[str, Any]:
         """Get summary of key performance metrics."""
         return {
             "memory_usage_mb": self.performance_metrics.memory_usage_mb,
@@ -410,7 +407,7 @@ class HealthMonitor:
 
         logger.info("Performance counters reset")
 
-    def _calculate_health_status(self) -> HealthStatus:
+    def _calculate_health_status(self) -> HealthStatus:  # noqa: C901
         """Calculate overall health status based on metrics."""
         issues = []
 
@@ -442,14 +439,15 @@ class HealthMonitor:
             issues.append(f"High memory usage: {self.performance_metrics.memory_usage_mb:.1f}MB")
 
         # Check circuit breaker state
-        if hasattr(self.client, "_circuit_breaker_state"):
-            if self.client._circuit_breaker_state == "open":
-                issues.append("Circuit breaker is open")
+        if (
+            hasattr(self.client, "_circuit_breaker_state")
+            and self.client._circuit_breaker_state == "open"
+        ):
+            issues.append("Circuit breaker is open")
 
         # Check degraded mode
-        if hasattr(self.client, "is_degraded_mode"):
-            if self.client.is_degraded_mode:
-                issues.append("Client is in degraded mode")
+        if hasattr(self.client, "is_degraded_mode") and self.client.is_degraded_mode:
+            issues.append("Client is in degraded mode")
 
         # Determine status based on issues
         if not issues:
@@ -498,7 +496,7 @@ class HealthMonitor:
         """Record that an event processing failed."""
         self.stream_metrics.events_failed += 1
 
-    def get_health_report(self) -> Dict[str, Any]:
+    def get_health_report(self) -> dict[str, Any]:
         """Get comprehensive health report."""
         return {
             "timestamp": datetime.now().isoformat(),
@@ -550,7 +548,7 @@ class HealthMonitor:
             ],
         }
 
-    def get_health_summary(self) -> Dict[str, Any]:
+    def get_health_summary(self) -> dict[str, Any]:
         """Get concise health summary."""
         return {
             "status": self.current_status.value,
@@ -570,7 +568,7 @@ class HealthMonitor:
         """Check if the system is healthy."""
         return self.current_status in [HealthStatus.HEALTHY, HealthStatus.DEGRADED]
 
-    def get_issues(self) -> List[str]:
+    def get_issues(self) -> list[str]:
         """Get list of current health issues."""
         issues = []
 

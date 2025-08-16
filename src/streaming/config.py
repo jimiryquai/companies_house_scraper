@@ -43,6 +43,7 @@ class StreamingConfig(BaseSettings):
     @field_validator("streaming_api_key")
     @classmethod
     def validate_api_key(cls, v: str) -> str:
+        """Validate the streaming API key."""
         if not v or len(v) < 10:
             raise ValueError("Invalid streaming API key")
         return v
@@ -50,6 +51,7 @@ class StreamingConfig(BaseSettings):
     @field_validator("max_retries")
     @classmethod
     def validate_max_retries(cls, v: int) -> int:
+        """Validate the max retries setting."""
         if v < 1 or v > 10:
             raise ValueError("max_retries must be between 1 and 10")
         return v
@@ -57,6 +59,7 @@ class StreamingConfig(BaseSettings):
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
+        """Validate the log level setting."""
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if v.upper() not in valid_levels:
             raise ValueError(f"log_level must be one of {valid_levels}")

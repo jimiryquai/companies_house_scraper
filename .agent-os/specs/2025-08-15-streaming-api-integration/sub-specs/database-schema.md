@@ -70,10 +70,10 @@ ALTER TABLE companies ADD COLUMN stream_event_type TEXT;
 ALTER TABLE companies ADD COLUMN stream_processing_status TEXT DEFAULT 'pending';
 
 -- Create index for faster streaming queries
-CREATE INDEX IF NOT EXISTS idx_companies_stream_status 
+CREATE INDEX IF NOT EXISTS idx_companies_stream_status
 ON companies(stream_processing_status);
 
-CREATE INDEX IF NOT EXISTS idx_companies_stream_updated 
+CREATE INDEX IF NOT EXISTS idx_companies_stream_updated
 ON companies(stream_last_updated);
 
 COMMIT;
@@ -111,22 +111,22 @@ CREATE TABLE IF NOT EXISTS stream_events_log (
 );
 
 -- Create indexes for performance
-CREATE INDEX IF NOT EXISTS idx_stream_events_company 
+CREATE INDEX IF NOT EXISTS idx_stream_events_company
 ON stream_events_log(company_number);
 
-CREATE INDEX IF NOT EXISTS idx_stream_events_type 
+CREATE INDEX IF NOT EXISTS idx_stream_events_type
 ON stream_events_log(event_type);
 
-CREATE INDEX IF NOT EXISTS idx_stream_events_status 
+CREATE INDEX IF NOT EXISTS idx_stream_events_status
 ON stream_events_log(processing_status);
 
-CREATE INDEX IF NOT EXISTS idx_stream_events_received 
+CREATE INDEX IF NOT EXISTS idx_stream_events_received
 ON stream_events_log(received_at);
 
 -- Insert initial metadata record
 INSERT INTO stream_metadata (
-    stream_type, 
-    created_at, 
+    stream_type,
+    created_at,
     updated_at
 ) VALUES (
     'company-profile',

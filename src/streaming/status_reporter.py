@@ -1,4 +1,4 @@
-"""Connection Status Reporter
+"""Connection Status Reporter.
 
 Provides detailed connection status reporting for the streaming client,
 including connection history, performance analysis, and alerting capabilities.
@@ -10,7 +10,7 @@ import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class ConnectionEvent:
 
     timestamp: datetime
     event_type: str  # 'connect', 'disconnect', 'reconnect', 'failure'
-    details: Dict[str, Any]
+    details: dict[str, Any]
     duration_seconds: Optional[float] = None
     error_message: Optional[str] = None
 
@@ -32,12 +32,12 @@ class ConnectionReport:
 
     report_timestamp: datetime
     report_period_hours: float
-    connection_summary: Dict[str, Any]
-    performance_metrics: Dict[str, Any]
-    reliability_metrics: Dict[str, Any]
-    recent_events: List[ConnectionEvent]
-    issues_detected: List[str]
-    recommendations: List[str]
+    connection_summary: dict[str, Any]
+    performance_metrics: dict[str, Any]
+    reliability_metrics: dict[str, Any]
+    recent_events: list[ConnectionEvent]
+    issues_detected: list[str]
+    recommendations: list[str]
 
 
 class ConnectionStatusReporter:
@@ -58,12 +58,12 @@ class ConnectionStatusReporter:
         self.report_directory = Path(report_directory) if report_directory else None
 
         # Event tracking
-        self.connection_events: List[ConnectionEvent] = []
+        self.connection_events: list[ConnectionEvent] = []
         self.max_events_history = 1000
 
         # Performance tracking
-        self.connection_times: List[float] = []
-        self.disconnect_reasons: Dict[str, int] = {}
+        self.connection_times: list[float] = []
+        self.disconnect_reasons: dict[str, int] = {}
 
         # Reporting configuration
         self.reporting_enabled = True
@@ -78,12 +78,13 @@ class ConnectionStatusReporter:
         }
 
         # Alert callbacks
-        self.alert_callbacks: List[Callable[..., None]] = []
+        self.alert_callbacks: list[Callable[..., None]] = []
 
         if self.report_directory:
             self.report_directory.mkdir(parents=True, exist_ok=True)
             logger.info(
-                f"Connection status reporter initialized with report directory: {self.report_directory}"
+                f"Connection status reporter initialized with report directory: "
+                f"{self.report_directory}"
             )
 
     def register_alert_callback(self, callback: Callable[..., None]) -> None:
@@ -94,7 +95,7 @@ class ConnectionStatusReporter:
     def record_connection_event(
         self,
         event_type: str,
-        details: Optional[Dict[str, Any]] = None,
+        details: Optional[dict[str, Any]] = None,
         error_message: Optional[str] = None,
         duration: Optional[float] = None,
     ) -> None:
@@ -209,7 +210,7 @@ class ConnectionStatusReporter:
             except Exception as e:
                 logger.error(f"Error in alert callback: {e}")
 
-    def get_connection_summary(self, hours_back: float = 24) -> Dict[str, Any]:
+    def get_connection_summary(self, hours_back: float = 24) -> dict[str, Any]:
         """Get connection summary for the specified time period.
 
         Args:
@@ -222,7 +223,7 @@ class ConnectionStatusReporter:
         recent_events = [e for e in self.connection_events if e.timestamp > cutoff_time]
 
         # Count events by type
-        event_counts: Dict[str, int] = {}
+        event_counts: dict[str, int] = {}
         for event in recent_events:
             event_counts[event.event_type] = event_counts.get(event.event_type, 0) + 1
 
@@ -286,7 +287,7 @@ class ConnectionStatusReporter:
             },
         }
 
-    def get_performance_analysis(self, hours_back: float = 24) -> Dict[str, Any]:
+    def get_performance_analysis(self, hours_back: float = 24) -> dict[str, Any]:
         """Analyze connection performance over the specified period.
 
         Args:
@@ -317,7 +318,7 @@ class ConnectionStatusReporter:
 
         # Failure pattern analysis
         failures = [e for e in recent_events if e.event_type in ["failure", "disconnect"]]
-        failure_patterns: Dict[int, int] = {}
+        failure_patterns: dict[int, int] = {}
 
         for failure in failures:
             hour = failure.timestamp.hour
@@ -335,7 +336,7 @@ class ConnectionStatusReporter:
         }
 
     def _calculate_performance_grade(
-        self, connection_stats: Dict[str, Any], failure_count: int
+        self, connection_stats: dict[str, Any], failure_count: int
     ) -> str:
         """Calculate overall performance grade (A-F)."""
         score = 100
@@ -403,7 +404,7 @@ class ConnectionStatusReporter:
             recommendations=recommendations,
         )
 
-    def _calculate_mtbf(self, events: List[ConnectionEvent]) -> float:
+    def _calculate_mtbf(self, events: list[ConnectionEvent]) -> float:
         """Calculate Mean Time Between Failures."""
         failures = [e for e in events if e.event_type in ["failure", "disconnect"]]
         if len(failures) < 2:
@@ -419,7 +420,7 @@ class ConnectionStatusReporter:
 
         return sum(intervals) / len(intervals) if intervals else float("inf")
 
-    def _calculate_mttr(self, events: List[ConnectionEvent]) -> float:
+    def _calculate_mttr(self, events: list[ConnectionEvent]) -> float:
         """Calculate Mean Time To Recovery."""
         recovery_times = []
         failure_time = None
@@ -434,7 +435,7 @@ class ConnectionStatusReporter:
 
         return sum(recovery_times) / len(recovery_times) if recovery_times else 0
 
-    def _detect_issues(self, summary: Dict[str, Any], performance: Dict[str, Any]) -> List[str]:
+    def _detect_issues(self, summary: dict[str, Any], performance: dict[str, Any]) -> list[str]:
         """Detect issues based on metrics."""
         issues = []
 
@@ -455,8 +456,10 @@ class ConnectionStatusReporter:
         return issues
 
     def _generate_recommendations(
-        self, issues: List[str], performance: Dict[str, Any]
-    ) -> List[str]:
+        self,
+        issues: list[str],
+        performance: dict[str, Any],  # noqa: ARG002
+    ) -> list[str]:
         """Generate recommendations based on detected issues."""
         recommendations = []
 
@@ -531,7 +534,7 @@ class ConnectionStatusReporter:
             logger.error(f"Failed to save connection report: {e}")
             return None
 
-    def get_recent_events(self, count: int = 10) -> List[Dict[str, Any]]:
+    def get_recent_events(self, count: int = 10) -> list[dict[str, Any]]:
         """Get recent connection events."""
         recent = self.connection_events[-count:] if self.connection_events else []
         return [

@@ -3,7 +3,7 @@
 import json
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import aiosqlite
 
@@ -34,8 +34,8 @@ class EventLogger:
         """Initialize EventLogger."""
         self.config = config
         self.db = StreamingDatabase(config)
-        self.processing_queue: List[str] = []
-        self.failed_events: List[str] = []
+        self.processing_queue: list[str] = []
+        self.failed_events: list[str] = []
         self._connection: Optional[aiosqlite.Connection] = None
 
     async def connect(self) -> None:
@@ -50,7 +50,7 @@ class EventLogger:
             self._connection = None
         await self.db.disconnect()
 
-    async def log_event(self, event_id: str, event_data: Dict[str, Any]) -> Optional[str]:
+    async def log_event(self, event_id: str, event_data: dict[str, Any]) -> Optional[str]:
         """Log an event to the database.
 
         Returns event_id if successful, None if duplicate.
@@ -102,9 +102,9 @@ class EventLogger:
             return event_id
 
         except Exception as e:
-            raise EventLogError(f"Failed to log event: {e}")
+            raise EventLogError(f"Failed to log event: {e}") from e
 
-    async def get_event(self, event_id: str) -> Optional[Dict[str, Any]]:
+    async def get_event(self, event_id: str) -> Optional[dict[str, Any]]:
         """Get event by ID."""
         if not self._connection:
             await self.connect()
@@ -187,7 +187,7 @@ class EventLogger:
         if self._connection:
             await self._connection.commit()
 
-    async def get_pending_events(self, limit: int = 100) -> List[Dict[str, Any]]:
+    async def get_pending_events(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get pending events for processing."""
         if not self._connection:
             await self.connect()
@@ -222,7 +222,7 @@ class EventLogger:
             for row in rows
         ]
 
-    async def get_failed_events(self, max_retries: int = 3) -> List[Dict[str, Any]]:
+    async def get_failed_events(self, max_retries: int = 3) -> list[dict[str, Any]]:
         """Get failed events that can be retried."""
         if not self._connection:
             await self.connect()
@@ -256,7 +256,7 @@ class EventLogger:
             for row in rows
         ]
 
-    async def batch_log_events(self, events: List[Tuple[str, Dict[str, Any]]]) -> List[str]:
+    async def batch_log_events(self, events: list[tuple[str, dict[str, Any]]]) -> list[str]:
         """Batch log multiple events."""
         results = []
         for event_id, event_data in events:
@@ -265,7 +265,7 @@ class EventLogger:
                 results.append(result)
         return results
 
-    async def get_statistics(self) -> Dict[str, Any]:
+    async def get_statistics(self) -> dict[str, Any]:
         """Get event processing statistics."""
         if not self._connection:
             await self.connect()
@@ -326,7 +326,7 @@ class EventTracker:
         """Disconnect from database."""
         await self.logger.disconnect()
 
-    async def track_event(self, event_id: str, event_data: Dict[str, Any]) -> bool:
+    async def track_event(self, event_id: str, event_data: dict[str, Any]) -> bool:
         """Track an event.
 
         Returns True if event was tracked, False if duplicate.
@@ -358,7 +358,7 @@ class EventTracker:
         )
         self.failed_count += 1
 
-    async def retry_failed_events(self, max_retries: int = 3) -> List[str]:
+    async def retry_failed_events(self, max_retries: int = 3) -> list[str]:
         """Retry failed events.
 
         Returns list of event IDs that were retried.
@@ -379,7 +379,7 @@ class EventTracker:
 
         return retried
 
-    async def get_statistics(self) -> Dict[str, Any]:
+    async def get_statistics(self) -> dict[str, Any]:
         """Get tracking statistics."""
         event_stats = await self.logger.get_statistics()
 

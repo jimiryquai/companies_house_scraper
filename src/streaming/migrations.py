@@ -11,6 +11,7 @@ class DatabaseMigration:
     """Handles database schema migrations for streaming functionality."""
 
     def __init__(self, db_path: str = "companies.db"):
+        """Initialize database migration manager."""
         self.db_path = db_path
 
     def get_connection(self) -> sqlite3.Connection:
@@ -212,13 +213,16 @@ class DatabaseMigration:
                 "CREATE INDEX IF NOT EXISTS idx_companies_data_source ON companies(data_source)"
             )
             cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_stream_events_company_number ON stream_events(company_number)"
+                "CREATE INDEX IF NOT EXISTS idx_stream_events_company_number "
+                "ON stream_events(company_number)"
             )
             cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_stream_events_event_type ON stream_events(event_type)"
+                "CREATE INDEX IF NOT EXISTS idx_stream_events_event_type "
+                "ON stream_events(event_type)"
             )
             cursor.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_stream_events_event_id ON stream_events(event_id)"
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_stream_events_event_id "
+                "ON stream_events(event_id)"
             )
 
             conn.commit()

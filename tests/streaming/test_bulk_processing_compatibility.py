@@ -3,33 +3,30 @@ Tests for streaming and bulk processing compatibility.
 Verifies that streaming updates work correctly alongside existing bulk data operations.
 """
 
-import pytest
-import asyncio
-import tempfile
+import json
 import os
 import sqlite3
-import json
+import tempfile
 from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, AsyncMock
-from typing import Dict, Any, List
+from typing import Any
+
+import pytest
 
 from src.streaming import (
-    StreamingDatabase,
-    StreamingConfig,
-    EventProcessor,
     CompanyEvent,
+    CompanyRecord,
+    EventProcessor,
     EventTracker,
-    DatabaseManager,
-    CompanyRecord
+    StreamingConfig,
+    StreamingDatabase,
 )
 
 
 @pytest.fixture
-def temp_db():
+def temp_db() -> Any:
     """Create a temporary database with bulk data for testing."""
-    temp_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as temp_file:
+        temp_path = temp_file.name
 
     # Initialize database schema with bulk data
     with sqlite3.connect(temp_path) as conn:
@@ -76,21 +73,70 @@ def temp_db():
 
         # Insert sample bulk data
         bulk_companies = [
-            ('BLK001', 'Bulk Company One Ltd', 'active', None, '2020-01-01',
-             '[{"code": "62090", "description": "Other information technology service activities"}]',
-             '123 Business St', None, 'London', 'Greater London', 'England', 'SW1A 1AA', None,
-             None, 'unknown', 'bulk', None, None),
-            ('BLK002', 'Bulk Company Two Ltd', 'active', 'proposal-to-strike-off', '2019-06-15',
-             '[{"code": "70100", "description": "Activities of head offices"}]',
-             '456 Commerce Ave', 'Suite 100', 'Manchester', 'Greater Manchester', 'England', 'M1 1AA', None,
-             None, 'unknown', 'bulk', None, None),
-            ('BLK003', 'Bulk Company Three Ltd', 'liquidation', None, '2018-12-01',
-             '[{"code": "82990", "description": "Other business support service activities"}]',
-             '789 Industry Rd', None, 'Birmingham', 'West Midlands', 'England', 'B1 1AA', None,
-             None, 'unknown', 'bulk', None, None),
+            (
+                "BLK001",
+                "Bulk Company One Ltd",
+                "active",
+                None,
+                "2020-01-01",
+                '[{"code": "62090", "description": "Other information technology services"}]',
+                "123 Business St",
+                None,
+                "London",
+                "Greater London",
+                "England",
+                "SW1A 1AA",
+                None,
+                None,
+                "unknown",
+                "bulk",
+                None,
+                None,
+            ),
+            (
+                "BLK002",
+                "Bulk Company Two Ltd",
+                "active",
+                "proposal-to-strike-off",
+                "2019-06-15",
+                '[{"code": "70100", "description": "Activities of head offices"}]',
+                "456 Commerce Ave",
+                "Suite 100",
+                "Manchester",
+                "Greater Manchester",
+                "England",
+                "M1 1AA",
+                None,
+                None,
+                "unknown",
+                "bulk",
+                None,
+                None,
+            ),
+            (
+                "BLK003",
+                "Bulk Company Three Ltd",
+                "liquidation",
+                None,
+                "2018-12-01",
+                '[{"code": "82990", "description": "Other business support service activities"}]',
+                "789 Industry Rd",
+                None,
+                "Birmingham",
+                "West Midlands",
+                "England",
+                "B1 1AA",
+                None,
+                None,
+                "unknown",
+                "bulk",
+                None,
+                None,
+            ),
         ]
 
-        conn.executemany("""
+        conn.executemany(
+            """
             INSERT INTO companies (
                 company_number, company_name, company_status, company_status_detail,
                 incorporation_date, sic_codes, address_line_1, address_line_2,
@@ -98,7 +144,9 @@ def temp_db():
                 stream_last_updated, stream_status, data_source,
                 last_stream_event_id, stream_metadata
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, bulk_companies)
+        """,
+            bulk_companies,
+        )
 
         conn.commit()
 
@@ -109,17 +157,17 @@ def temp_db():
 
 
 @pytest.fixture
-def config(temp_db):
+def config(temp_db: Any) -> Any:
     """Create test configuration with populated database."""
     return StreamingConfig(
         streaming_api_key="12345678-1234-1234-1234-123456789012",
         database_path=temp_db,
-        batch_size=10
+        batch_size=10,
     )
 
 
 @pytest.fixture
-def stream_events():
+def stream_events() -> Any:
     """Sample streaming events that correspond to existing bulk companies."""
     return [
         {
@@ -131,14 +179,17 @@ def stream_events():
                 "company_status": "active",
                 "company_status_detail": None,
                 "sic_codes": [
-                    {"code": "62090", "description": "Other information technology service activities"},
-                    {"code": "62020", "description": "Information technology consultancy activities"}  # Added SIC
-                ]
+                    {
+                        "code": "62090",
+                        "description": "Other information technology service activities",
+                    },
+                    {
+                        "code": "62020",
+                        "description": "Information technology consultancy activities",
+                    },  # Added SIC
+                ],
             },
-            "event": {
-                "timepoint": 5000,
-                "published_at": "2025-08-15T14:00:00Z"
-            }
+            "event": {"timepoint": 5000, "published_at": "2025-08-15T14:00:00Z"},
         },
         {
             "resource_kind": "company-profile",
@@ -154,13 +205,10 @@ def stream_events():
                     "locality": "Manchester",
                     "region": "Greater Manchester",
                     "country": "England",
-                    "postal_code": "M1 1BB"  # Updated postcode
-                }
+                    "postal_code": "M1 1BB",  # Updated postcode
+                },
             },
-            "event": {
-                "timepoint": 5001,
-                "published_at": "2025-08-15T14:01:00Z"
-            }
+            "event": {"timepoint": 5001, "published_at": "2025-08-15T14:01:00Z"},
         },
         {
             "resource_kind": "company-profile",
@@ -176,14 +224,11 @@ def stream_events():
                     "locality": "Leeds",
                     "region": "West Yorkshire",
                     "country": "England",
-                    "postal_code": "LS1 1AA"
-                }
+                    "postal_code": "LS1 1AA",
+                },
             },
-            "event": {
-                "timepoint": 5002,
-                "published_at": "2025-08-15T14:02:00Z"
-            }
-        }
+            "event": {"timepoint": 5002, "published_at": "2025-08-15T14:02:00Z"},
+        },
     ]
 
 
@@ -191,7 +236,9 @@ class TestBulkStreamingCompatibility:
     """Test compatibility between bulk and streaming data operations."""
 
     @pytest.mark.asyncio
-    async def test_bulk_data_preservation_during_streaming_updates(self, config, stream_events):
+    async def test_bulk_data_preservation_during_streaming_updates(
+        self, config: Any, stream_events: Any
+    ) -> None:
         """Test that bulk data is preserved when streaming updates are applied."""
         database = StreamingDatabase(config)
         await database.connect()
@@ -204,8 +251,11 @@ class TestBulkStreamingCompatibility:
             # Check specific bulk company before update
             blk001_before = await database.get_company("BLK001")
             assert blk001_before is not None
-            assert blk001_before["company_name"] == "Bulk Company One Ltd"
-            assert blk001_before["data_source"] == "bulk"
+            assert (
+                blk001_before is not None
+                and blk001_before["company_name"] == "Bulk Company One Ltd"
+            )
+            assert blk001_before is not None and blk001_before["data_source"] == "bulk"
 
             # Apply streaming update to existing bulk company
             stream_event = stream_events[0]  # BLK001 update
@@ -217,7 +267,7 @@ class TestBulkStreamingCompatibility:
                 "company_status": company_event.company_status,
                 "stream_last_updated": datetime.now().isoformat(),
                 "data_source": "stream",
-                "last_stream_event_id": "stream_evt_001"
+                "last_stream_event_id": "stream_evt_001",
             }
 
             await database.upsert_company(update_data)
@@ -225,25 +275,33 @@ class TestBulkStreamingCompatibility:
             # Verify the update was applied
             blk001_after = await database.get_company("BLK001")
             assert blk001_after is not None
-            assert blk001_after["company_name"] == "Bulk Company One Ltd - Updated"
-            assert blk001_after["data_source"] == "stream"
-            assert blk001_after["last_stream_event_id"] == "stream_evt_001"
+            assert (
+                blk001_after is not None
+                and blk001_after["company_name"] == "Bulk Company One Ltd - Updated"
+            )
+            assert blk001_after is not None and blk001_after["data_source"] == "stream"
+            assert (
+                blk001_after is not None
+                and blk001_after["last_stream_event_id"] == "stream_evt_001"
+            )
 
             # Verify bulk fields are preserved
-            assert blk001_after["incorporation_date"] == "2020-01-01"
-            assert blk001_after["address_line_1"] == "123 Business St"
-            assert blk001_after["locality"] == "London"
+            assert blk001_after is not None and blk001_after["incorporation_date"] == "2020-01-01"
+            assert blk001_after is not None and blk001_after["address_line_1"] == "123 Business St"
+            assert blk001_after is not None and blk001_after["locality"] == "London"
 
             # Verify other bulk companies are unchanged
             blk002 = await database.get_company("BLK002")
-            assert blk002["data_source"] == "bulk"
-            assert blk002["company_name"] == "Bulk Company Two Ltd"
+            assert blk002 is not None and blk002["data_source"] == "bulk"
+            assert blk002 is not None and blk002["company_name"] == "Bulk Company Two Ltd"
 
         finally:
             await database.disconnect()
 
     @pytest.mark.asyncio
-    async def test_streaming_updates_strike_off_status(self, config, stream_events):
+    async def test_streaming_updates_strike_off_status(
+        self, config: Any, stream_events: Any
+    ) -> None:
         """Test streaming updates to strike-off status on bulk companies."""
         database = StreamingDatabase(config)
         await database.connect()
@@ -251,7 +309,10 @@ class TestBulkStreamingCompatibility:
         try:
             # Check initial strike-off company
             blk002_before = await database.get_company("BLK002")
-            assert blk002_before["company_status_detail"] == "proposal-to-strike-off"
+            assert (
+                blk002_before is not None
+                and blk002_before["company_status_detail"] == "proposal-to-strike-off"
+            )
 
             # Apply streaming update that removes strike-off status
             stream_event = stream_events[1]  # BLK002 update
@@ -264,26 +325,28 @@ class TestBulkStreamingCompatibility:
                 "company_status_detail": stream_event["data"].get("company_status_detail"),
                 "stream_last_updated": datetime.now().isoformat(),
                 "data_source": "stream",
-                "last_stream_event_id": "stream_evt_002"
+                "last_stream_event_id": "stream_evt_002",
             }
 
             await database.upsert_company(update_data)
 
             # Verify strike-off status was removed
             blk002_after = await database.get_company("BLK002")
-            assert blk002_after["company_status_detail"] is None
-            assert blk002_after["data_source"] == "stream"
+            assert blk002_after is not None and blk002_after["company_status_detail"] is None
+            assert blk002_after is not None and blk002_after["data_source"] == "stream"
 
             # Verify we can still query for strike-off companies from bulk data
             query = "SELECT * FROM companies WHERE company_status_detail = ?"
-            strike_off_companies = await database.manager.fetch_all(query, ("proposal-to-strike-off",))
+            strike_off_companies = await database.manager.fetch_all(
+                query, ("proposal-to-strike-off",)
+            )
             assert len(strike_off_companies) == 0  # BLK002 should no longer be strike-off
 
         finally:
             await database.disconnect()
 
     @pytest.mark.asyncio
-    async def test_new_companies_via_streaming(self, config, stream_events):
+    async def test_new_companies_via_streaming(self, config: Any, stream_events: Any) -> None:
         """Test adding completely new companies via streaming."""
         database = StreamingDatabase(config)
         await database.connect()
@@ -310,7 +373,7 @@ class TestBulkStreamingCompatibility:
                 "postal_code": stream_event["data"]["address"]["postal_code"],
                 "stream_last_updated": datetime.now().isoformat(),
                 "data_source": "stream",
-                "last_stream_event_id": "stream_evt_003"
+                "last_stream_event_id": "stream_evt_003",
             }
 
             await database.upsert_company(new_company_data)
@@ -321,15 +384,17 @@ class TestBulkStreamingCompatibility:
 
             str001 = await database.get_company("STR001")
             assert str001 is not None
-            assert str001["company_name"] == "Stream Only Company Ltd"
-            assert str001["data_source"] == "stream"
-            assert str001["company_status_detail"] == "proposal-to-strike-off"
+            assert str001 is not None and str001["company_name"] == "Stream Only Company Ltd"
+            assert str001 is not None and str001["data_source"] == "stream"
+            assert (
+                str001 is not None and str001["company_status_detail"] == "proposal-to-strike-off"
+            )
 
         finally:
             await database.disconnect()
 
     @pytest.mark.asyncio
-    async def test_data_source_tracking(self, config, stream_events):
+    async def test_data_source_tracking(self, config: Any, stream_events: Any) -> None:
         """Test that data source is properly tracked for bulk vs stream data."""
         database = StreamingDatabase(config)
         await database.connect()
@@ -354,7 +419,7 @@ class TestBulkStreamingCompatibility:
                 "company_number": company_event.company_number,
                 "company_name": company_event.company_name,
                 "stream_last_updated": datetime.now().isoformat(),
-                "data_source": "stream"
+                "data_source": "stream",
             }
 
             await database.upsert_company(update_data)
@@ -375,7 +440,7 @@ class TestBulkStreamingCompatibility:
             await database.disconnect()
 
     @pytest.mark.asyncio
-    async def test_stream_metadata_preservation(self, config):
+    async def test_stream_metadata_preservation(self, config: Any) -> None:
         """Test that streaming metadata is preserved during updates."""
         database = StreamingDatabase(config)
         event_tracker = EventTracker(config)
@@ -389,14 +454,8 @@ class TestBulkStreamingCompatibility:
             event_data = {
                 "resource_kind": "company-profile",
                 "resource_id": "BLK001",
-                "data": {
-                    "company_number": "BLK001",
-                    "company_name": "Updated Name"
-                },
-                "event": {
-                    "timepoint": 6000,
-                    "published_at": "2025-08-15T15:00:00Z"
-                }
+                "data": {"company_number": "BLK001", "company_name": "Updated Name"},
+                "event": {"timepoint": 6000, "published_at": "2025-08-15T15:00:00Z"},
             }
 
             # Track the event
@@ -407,7 +466,7 @@ class TestBulkStreamingCompatibility:
             metadata = {
                 "last_event_timepoint": 6000,
                 "last_update_source": "streaming_api",
-                "update_reason": "company_profile_change"
+                "update_reason": "company_profile_change",
             }
 
             update_data = {
@@ -416,7 +475,7 @@ class TestBulkStreamingCompatibility:
                 "stream_last_updated": datetime.now().isoformat(),
                 "data_source": "stream",
                 "last_stream_event_id": event_id,
-                "stream_metadata": json.dumps(metadata)
+                "stream_metadata": json.dumps(metadata),
             }
 
             await database.upsert_company(update_data)
@@ -424,15 +483,19 @@ class TestBulkStreamingCompatibility:
 
             # Verify metadata was stored
             company = await database.get_company("BLK001")
-            assert company["stream_metadata"] is not None
+            assert company is not None and company["stream_metadata"] is not None
 
+            assert company is not None
             stored_metadata = json.loads(company["stream_metadata"])
-            assert stored_metadata["last_event_timepoint"] == 6000
-            assert stored_metadata["update_reason"] == "company_profile_change"
+            assert stored_metadata is not None and stored_metadata["last_event_timepoint"] == 6000
+            assert (
+                stored_metadata is not None
+                and stored_metadata["update_reason"] == "company_profile_change"
+            )
 
             # Verify event was tracked
             event_record = await event_tracker.logger.get_event(event_id)
-            assert event_record["processing_status"] == "completed"
+            assert event_record is not None and event_record["processing_status"] == "completed"
 
         finally:
             await event_tracker.disconnect()
@@ -443,7 +506,7 @@ class TestDataConsistencyManagement:
     """Test data consistency between bulk and streaming sources."""
 
     @pytest.mark.asyncio
-    async def test_conflict_resolution_stream_over_bulk(self, config):
+    async def test_conflict_resolution_stream_over_bulk(self, config: Any) -> None:
         """Test that streaming data takes precedence over bulk data in conflicts."""
         database = StreamingDatabase(config)
         await database.connect()
@@ -451,7 +514,7 @@ class TestDataConsistencyManagement:
         try:
             # Get initial bulk data
             bulk_company = await database.get_company("BLK001")
-            original_name = bulk_company["company_name"]
+            bulk_company["company_name"] if bulk_company is not None else "Unknown"
 
             # Simulate newer streaming data
             stream_update = {
@@ -460,7 +523,7 @@ class TestDataConsistencyManagement:
                 "company_status": "active",
                 "stream_last_updated": datetime.now().isoformat(),
                 "data_source": "stream",
-                "last_stream_event_id": "conflict_test_001"
+                "last_stream_event_id": "conflict_test_001",
             }
 
             await database.upsert_company(stream_update)
@@ -470,7 +533,7 @@ class TestDataConsistencyManagement:
                 "company_number": "BLK001",
                 "company_name": "Bulk Updated Name",
                 "company_status": "active",
-                "data_source": "bulk"
+                "data_source": "bulk",
             }
 
             # This should not override the streaming data due to conflict resolution
@@ -479,15 +542,21 @@ class TestDataConsistencyManagement:
 
             # Verify streaming data is preserved
             final_company = await database.get_company("BLK001")
-            assert final_company["company_name"] == "Streaming Updated Name"
-            assert final_company["data_source"] == "stream"
-            assert final_company["last_stream_event_id"] == "conflict_test_001"
+            assert (
+                final_company is not None
+                and final_company["company_name"] == "Streaming Updated Name"
+            )
+            assert final_company is not None and final_company["data_source"] == "stream"
+            assert (
+                final_company is not None
+                and final_company["last_stream_event_id"] == "conflict_test_001"
+            )
 
         finally:
             await database.disconnect()
 
     @pytest.mark.asyncio
-    async def test_bulk_data_fills_missing_stream_fields(self, config):
+    async def test_bulk_data_fills_missing_stream_fields(self, config: Any) -> None:
         """Test that bulk data fills in missing fields from streaming updates."""
         database = StreamingDatabase(config)
         await database.connect()
@@ -495,8 +564,12 @@ class TestDataConsistencyManagement:
         try:
             # Get full bulk data
             bulk_company = await database.get_company("BLK002")
-            original_address = bulk_company["address_line_1"]
-            original_sic_codes = bulk_company["sic_codes"]
+            original_address = (
+                bulk_company["address_line_1"] if bulk_company is not None else "Unknown"
+            )
+            original_sic_codes = (
+                bulk_company["sic_codes"] if bulk_company is not None else "Unknown"
+            )
 
             # Apply partial streaming update (only name and status)
             partial_stream_update = {
@@ -504,23 +577,31 @@ class TestDataConsistencyManagement:
                 "company_name": "Partially Updated Name",
                 "company_status": "active",
                 "stream_last_updated": datetime.now().isoformat(),
-                "data_source": "stream"
+                "data_source": "stream",
             }
 
             await database.upsert_company(partial_stream_update)
 
             # Verify streaming fields are updated but bulk fields preserved
             updated_company = await database.get_company("BLK002")
-            assert updated_company["company_name"] == "Partially Updated Name"
-            assert updated_company["data_source"] == "stream"
-            assert updated_company["address_line_1"] == original_address  # Preserved from bulk
-            assert updated_company["sic_codes"] == original_sic_codes  # Preserved from bulk
+            assert (
+                updated_company is not None
+                and updated_company["company_name"] == "Partially Updated Name"
+            )
+            assert updated_company is not None and updated_company["data_source"] == "stream"
+            assert (
+                updated_company is not None
+                and updated_company["address_line_1"] == original_address
+            )  # Preserved from bulk
+            assert (
+                updated_company is not None and updated_company["sic_codes"] == original_sic_codes
+            )  # Preserved from bulk
 
         finally:
             await database.disconnect()
 
     @pytest.mark.asyncio
-    async def test_timestamp_based_conflict_resolution(self, config):
+    async def test_timestamp_based_conflict_resolution(self, config: Any) -> None:
         """Test conflict resolution based on timestamps."""
         database = StreamingDatabase(config)
         await database.connect()
@@ -532,7 +613,7 @@ class TestDataConsistencyManagement:
                 "company_number": "BLK003",
                 "company_name": "Old Streaming Name",
                 "stream_last_updated": old_timestamp,
-                "data_source": "stream"
+                "data_source": "stream",
             }
 
             await database.upsert_company(old_update)
@@ -543,15 +624,19 @@ class TestDataConsistencyManagement:
                 "company_number": "BLK003",
                 "company_name": "New Streaming Name",
                 "stream_last_updated": new_timestamp,
-                "data_source": "stream"
+                "data_source": "stream",
             }
 
             await database.upsert_company(new_update)
 
             # Verify newer update took precedence
             final_company = await database.get_company("BLK003")
-            assert final_company["company_name"] == "New Streaming Name"
-            assert final_company["stream_last_updated"] == new_timestamp
+            assert (
+                final_company is not None and final_company["company_name"] == "New Streaming Name"
+            )
+            assert (
+                final_company is not None and final_company["stream_last_updated"] == new_timestamp
+            )
 
         finally:
             await database.disconnect()
@@ -561,7 +646,7 @@ class TestBulkProcessingWorkflow:
     """Test the workflow of bulk processing alongside streaming."""
 
     @pytest.mark.asyncio
-    async def test_bulk_import_with_existing_stream_data(self, config):
+    async def test_bulk_import_with_existing_stream_data(self, config: Any) -> None:
         """Test bulk import when streaming data already exists."""
         database = StreamingDatabase(config)
         await database.connect()
@@ -574,7 +659,7 @@ class TestBulkProcessingWorkflow:
                 "company_status": "active",
                 "stream_last_updated": datetime.now().isoformat(),
                 "data_source": "stream",
-                "last_stream_event_id": "bulk_test_001"
+                "last_stream_event_id": "bulk_test_001",
             }
 
             await database.upsert_company(stream_update)
@@ -585,8 +670,8 @@ class TestBulkProcessingWorkflow:
                 "company_name": "Bulk Import Name",
                 "company_status": "active",
                 "incorporation_date": "2020-01-01",  # Additional bulk field
-                "sic_codes": "[{\"code\": \"12345\", \"description\": \"New activity\"}]",
-                "data_source": "bulk"
+                "sic_codes": '[{"code": "12345", "description": "New activity"}]',
+                "data_source": "bulk",
             }
 
             # Bulk import should not override streaming data but can add missing fields
@@ -594,19 +679,25 @@ class TestBulkProcessingWorkflow:
             result = await database.upsert_company_with_conflict_resolution(bulk_company_record)
 
             # Verify the result shows conflict resolution occurred
-            assert result["action"] in ["updated", "skipped"]
+            assert result is not None and result["action"] in ["updated", "skipped"]
 
             # Verify streaming data is preserved
             final_company = await database.get_company("BLK001")
-            assert final_company["company_name"] == "Stream Updated Company"  # Stream name preserved
-            assert final_company["data_source"] == "stream"  # Source preserved
-            assert final_company["last_stream_event_id"] == "bulk_test_001"  # Stream metadata preserved
+            assert (
+                final_company is not None
+                and final_company["company_name"] == "Stream Updated Company"
+            )  # Stream name preserved
+            # Source preserved
+            assert final_company is not None and final_company["data_source"] == "stream"
+            assert (
+                final_company["last_stream_event_id"] == "bulk_test_001"
+            )  # Stream metadata preserved
 
         finally:
             await database.disconnect()
 
     @pytest.mark.asyncio
-    async def test_mixed_data_source_queries(self, config, stream_events):
+    async def test_mixed_data_source_queries(self, config: Any, stream_events: Any) -> None:
         """Test querying data from mixed bulk and streaming sources."""
         database = StreamingDatabase(config)
         await database.connect()
@@ -620,7 +711,7 @@ class TestBulkProcessingWorkflow:
                 "company_number": company_event.company_number,
                 "company_name": company_event.company_name,
                 "data_source": "stream",
-                "stream_last_updated": datetime.now().isoformat()
+                "stream_last_updated": datetime.now().isoformat(),
             }
 
             await database.upsert_company(stream_update)
@@ -631,7 +722,7 @@ class TestBulkProcessingWorkflow:
                 "company_name": "Another Stream Company",
                 "company_status": "active",
                 "data_source": "stream",
-                "stream_last_updated": datetime.now().isoformat()
+                "stream_last_updated": datetime.now().isoformat(),
             }
 
             await database.upsert_company(new_stream_company)
@@ -662,7 +753,7 @@ class TestBulkProcessingWorkflow:
             await database.disconnect()
 
     @pytest.mark.asyncio
-    async def test_data_quality_metrics_mixed_sources(self, config):
+    async def test_data_quality_metrics_mixed_sources(self, config: Any) -> None:
         """Test data quality metrics across mixed data sources."""
         database = StreamingDatabase(config)
         await database.connect()
@@ -674,15 +765,15 @@ class TestBulkProcessingWorkflow:
                     "company_number": "BLK001",
                     "company_name": "Stream Updated One",
                     "data_source": "stream",
-                    "stream_last_updated": datetime.now().isoformat()
+                    "stream_last_updated": datetime.now().isoformat(),
                 },
                 {
                     "company_number": "STR001",
                     "company_name": "Pure Stream Company",
                     "company_status": "active",
                     "data_source": "stream",
-                    "stream_last_updated": datetime.now().isoformat()
-                }
+                    "stream_last_updated": datetime.now().isoformat(),
+                },
             ]
 
             for update in stream_updates:
@@ -691,7 +782,8 @@ class TestBulkProcessingWorkflow:
             # Get data quality metrics
             quality_metrics = await database.get_data_quality_metrics()
 
-            assert quality_metrics["total_companies"] == 4  # 3 original + 1 new
+            # 3 original + 1 new
+            assert quality_metrics is not None and quality_metrics["total_companies"] == 4
             assert quality_metrics["completeness_score"] > 0
             assert isinstance(quality_metrics["field_coverage"], dict)
 
@@ -701,8 +793,8 @@ class TestBulkProcessingWorkflow:
             )
 
             source_counts = {row["data_source"]: row["count"] for row in source_distribution}
-            assert source_counts["bulk"] == 2
-            assert source_counts["stream"] == 2
+            assert source_counts is not None and source_counts["bulk"] == 2
+            assert source_counts is not None and source_counts["stream"] == 2
 
         finally:
             await database.disconnect()
@@ -712,7 +804,7 @@ class TestStreamingEventProcessingWithBulkData:
     """Test streaming event processing in the context of existing bulk data."""
 
     @pytest.mark.asyncio
-    async def test_event_processing_preserves_bulk_relationships(self, config):
+    async def test_event_processing_preserves_bulk_relationships(self, config: Any) -> None:
         """Test that streaming event processing preserves relationships from bulk data."""
         database = StreamingDatabase(config)
         processor = EventProcessor(config)
@@ -724,8 +816,12 @@ class TestStreamingEventProcessingWithBulkData:
         try:
             # Get initial company with bulk data
             initial_company = await database.get_company("BLK002")
-            original_incorporation_date = initial_company["incorporation_date"]
-            original_sic_codes = initial_company["sic_codes"]
+            original_incorporation_date = (
+                initial_company["incorporation_date"] if initial_company is not None else None
+            )
+            original_sic_codes = (
+                initial_company["sic_codes"] if initial_company is not None else None
+            )
 
             # Process streaming event
             event_data = {
@@ -734,12 +830,9 @@ class TestStreamingEventProcessingWithBulkData:
                 "data": {
                     "company_number": "BLK002",
                     "company_name": "Updated via Event Processing",
-                    "company_status": "active"
+                    "company_status": "active",
                 },
-                "event": {
-                    "timepoint": 7000,
-                    "published_at": "2025-08-15T16:00:00Z"
-                }
+                "event": {"timepoint": 7000, "published_at": "2025-08-15T16:00:00Z"},
             }
 
             event_id = "bulk_relation_test_001"
@@ -759,7 +852,7 @@ class TestStreamingEventProcessingWithBulkData:
                 "company_status": company_event.company_status,
                 "stream_last_updated": datetime.now().isoformat(),
                 "data_source": "stream",
-                "last_stream_event_id": event_id
+                "last_stream_event_id": event_id,
             }
 
             await database.upsert_company(update_data)
@@ -767,17 +860,27 @@ class TestStreamingEventProcessingWithBulkData:
 
             # Verify bulk relationships are preserved
             updated_company = await database.get_company("BLK002")
-            assert updated_company["company_name"] == "Updated via Event Processing"
-            assert updated_company["data_source"] == "stream"
-            assert updated_company["incorporation_date"] == original_incorporation_date
-            assert updated_company["sic_codes"] == original_sic_codes
+            assert (
+                updated_company is not None
+                and updated_company["company_name"] == "Updated via Event Processing"
+            )
+            assert updated_company is not None and updated_company["data_source"] == "stream"
+            assert (
+                updated_company is not None
+                and updated_company["incorporation_date"] == original_incorporation_date
+            )
+            assert (
+                updated_company is not None and updated_company["sic_codes"] == original_sic_codes
+            )
 
         finally:
             await event_tracker.disconnect()
             await database.disconnect()
 
     @pytest.mark.asyncio
-    async def test_batch_event_processing_with_bulk_data(self, config, stream_events):
+    async def test_batch_event_processing_with_bulk_data(
+        self, config: Any, stream_events: Any
+    ) -> None:
         """Test batch processing of streaming events with existing bulk data."""
         database = StreamingDatabase(config)
         processor = EventProcessor(config)
@@ -800,23 +903,27 @@ class TestStreamingEventProcessingWithBulkData:
                     "company_number": company_event.company_number,
                     "company_name": company_event.company_name,
                     "company_status": company_event.company_status,
-                    "company_status_detail": event_data.get("data", {}).get("company_status_detail"),
+                    "company_status_detail": event_data.get("data", {}).get(
+                        "company_status_detail"
+                    ),
                     "stream_last_updated": datetime.now().isoformat(),
                     "data_source": "stream",
-                    "last_stream_event_id": f"batch_test_{i+1}"
+                    "last_stream_event_id": f"batch_test_{i + 1}",
                 }
 
                 # Handle address data if present
                 if "address" in event_data.get("data", {}):
                     address = event_data["data"]["address"]
-                    update_data.update({
-                        "address_line_1": address.get("address_line_1"),
-                        "address_line_2": address.get("address_line_2"),
-                        "locality": address.get("locality"),
-                        "region": address.get("region"),
-                        "country": address.get("country"),
-                        "postal_code": address.get("postal_code")
-                    })
+                    update_data.update(
+                        {
+                            "address_line_1": address.get("address_line_1"),
+                            "address_line_2": address.get("address_line_2"),
+                            "locality": address.get("locality"),
+                            "region": address.get("region"),
+                            "country": address.get("country"),
+                            "postal_code": address.get("postal_code"),
+                        }
+                    )
 
                 await database.upsert_company(update_data)
 
@@ -826,17 +933,19 @@ class TestStreamingEventProcessingWithBulkData:
 
             # Verify specific updates
             blk001 = await database.get_company("BLK001")
-            assert blk001["company_name"] == "Bulk Company One Ltd - Updated"
-            assert blk001["data_source"] == "stream"
+            assert blk001 is not None and blk001["company_name"] == "Bulk Company One Ltd - Updated"
+            assert blk001 is not None and blk001["data_source"] == "stream"
 
             blk002 = await database.get_company("BLK002")
-            assert blk002["company_status_detail"] is None  # Strike-off removed
-            assert blk002["data_source"] == "stream"
+            assert (
+                blk002 is not None and blk002["company_status_detail"] is None
+            )  # Strike-off removed
+            assert blk002 is not None and blk002["data_source"] == "stream"
 
             str001 = await database.get_company("STR001")
             assert str001 is not None
-            assert str001["company_name"] == "Stream Only Company Ltd"
-            assert str001["data_source"] == "stream"
+            assert str001 is not None and str001["company_name"] == "Stream Only Company Ltd"
+            assert str001 is not None and str001["data_source"] == "stream"
 
         finally:
             await database.disconnect()

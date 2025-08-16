@@ -3,33 +3,27 @@ Tests for real API connectivity with test credentials.
 These tests require valid API credentials and internet connectivity.
 """
 
-import pytest
 import asyncio
 import os
-import aiohttp
 from datetime import datetime
-from unittest.mock import patch
-from typing import Dict, Any, Optional
+from typing import Any
 
-from src.streaming import (
-    StreamingClient,
-    StreamingConfig,
-    StructuredLogger,
-    LogLevel,
-    LogContext
-)
+import aiohttp
+import pytest
 
+from src.streaming import LogContext, LogLevel, StreamingClient, StreamingConfig, StructuredLogger
 
 # Skip API tests if no credentials are available
 API_KEY = os.getenv("COMPANIES_HOUSE_STREAMING_API_KEY")
 pytestmark = pytest.mark.skipif(
     not API_KEY or API_KEY == "test-api-key",
-    reason="Real API key not available - set COMPANIES_HOUSE_STREAMING_API_KEY environment variable"
+    reason="Real API key not available - set COMPANIES_HOUSE_STREAMING_API_KEY "
+    "environment variable",
 )
 
 
 @pytest.fixture
-def real_api_config():
+def real_api_config() -> Any:
     """Create configuration with real API credentials."""
     api_key = os.getenv("COMPANIES_HOUSE_STREAMING_API_KEY")
     if not api_key or api_key == "test-api-key":
@@ -44,12 +38,12 @@ def real_api_config():
         initial_backoff=1,
         max_backoff=60,
         rate_limit_requests_per_minute=600,
-        batch_size=10
+        batch_size=10,
     )
 
 
 @pytest.fixture
-def test_api_config():
+def test_api_config() -> Any:
     """Create configuration for testing API endpoints (without streaming)."""
     api_key = os.getenv("COMPANIES_HOUSE_STREAMING_API_KEY")
     if not api_key or api_key == "test-api-key":
@@ -64,7 +58,7 @@ def test_api_config():
         initial_backoff=1,
         max_backoff=60,
         rate_limit_requests_per_minute=600,
-        batch_size=10
+        batch_size=10,
     )
 
 
@@ -72,7 +66,7 @@ class TestAPIConnectivity:
     """Test real API connectivity and authentication."""
 
     @pytest.mark.asyncio
-    async def test_api_authentication(self, test_api_config):
+    async def test_api_authentication(self, test_api_config: Any) -> None:
         """Test API authentication with real credentials."""
         client = StreamingClient(test_api_config)
 
@@ -84,7 +78,7 @@ class TestAPIConnectivity:
             async with aiohttp.ClientSession() as session:
                 headers = {
                     "Authorization": f"Bearer {test_api_config.streaming_api_key}",
-                    "User-Agent": "companies-house-streaming-test/1.0"
+                    "User-Agent": "companies-house-streaming-test/1.0",
                 }
 
                 # Test the search endpoint (publicly available)
@@ -92,9 +86,11 @@ class TestAPIConnectivity:
                     "https://api.companieshouse.gov.uk/search/companies",
                     headers=headers,
                     params={"q": "test", "items_per_page": "1"},
-                    timeout=aiohttp.ClientTimeout(total=30)
+                    timeout=aiohttp.ClientTimeout(total=30),
                 ) as response:
-                    assert response.status in [200, 401, 403], f"Unexpected status: {response.status}"
+                    assert response.status in [200, 401, 403], (
+                        f"Unexpected status: {response.status}"
+                    )
 
                     if response.status == 200:
                         # Authentication successful
@@ -105,13 +101,15 @@ class TestAPIConnectivity:
                         pytest.fail("API authentication failed - invalid credentials")
                     elif response.status == 403:
                         # Valid credentials but insufficient permissions
-                        pytest.skip("API credentials valid but insufficient permissions for search endpoint")
+                        pytest.skip(
+                            "API credentials valid but insufficient permissions for search endpoint"
+                        )
 
         finally:
             await client.disconnect()
 
     @pytest.mark.asyncio
-    async def test_streaming_endpoint_availability(self, real_api_config):
+    async def test_streaming_endpoint_availability(self, real_api_config: Any) -> None:
         """Test streaming endpoint availability and initial connection."""
         client = StreamingClient(real_api_config)
 
@@ -123,7 +121,7 @@ class TestAPIConnectivity:
             headers = {
                 "Authorization": f"Bearer {real_api_config.streaming_api_key}",
                 "User-Agent": "companies-house-streaming-test/1.0",
-                "Accept": "application/json"
+                "Accept": "application/json",
             }
 
             async with aiohttp.ClientSession() as session:
@@ -131,7 +129,7 @@ class TestAPIConnectivity:
                     async with session.get(
                         url,
                         headers=headers,
-                        timeout=aiohttp.ClientTimeout(total=10)  # Short timeout for test
+                        timeout=aiohttp.ClientTimeout(total=10),  # Short timeout for test
                     ) as response:
                         # We expect either:
                         # 200 - Successfully connected to stream
@@ -139,12 +137,17 @@ class TestAPIConnectivity:
                         # 403 - Valid credentials but no streaming access
                         # 404 - Endpoint not found
                         # 429 - Rate limited
-                        assert response.status in [200, 401, 403, 404, 429], f"Unexpected status: {response.status}"
+                        assert response.status in [200, 401, 403, 404, 429], (
+                            f"Unexpected status: {response.status}"
+                        )
 
                         if response.status == 200:
                             # Successfully connected - this is what we want
-                            assert response.headers.get('content-type', '').startswith('text/plain') or \
-                                   response.headers.get('content-type', '').startswith('application/json')
+                            assert response.headers.get("content-type", "").startswith(
+                                "text/plain"
+                            ) or response.headers.get("content-type", "").startswith(
+                                "application/json"
+                            )
                         elif response.status == 401:
                             pytest.fail("Streaming API authentication failed - invalid credentials")
                         elif response.status == 403:
@@ -163,7 +166,7 @@ class TestAPIConnectivity:
             await client.disconnect()
 
     @pytest.mark.asyncio
-    async def test_streaming_client_connection(self, real_api_config):
+    async def test_streaming_client_connection(self, real_api_config: Any) -> None:
         """Test StreamingClient connection capabilities."""
         client = StreamingClient(real_api_config)
 
@@ -173,13 +176,11 @@ class TestAPIConnectivity:
             assert client.session is not None
 
             # Test health check if available
-            try:
-                health_result = await client.health_check()
-                assert isinstance(health_result, dict)
-                assert "status" in health_result
-            except Exception as e:
-                # Health check might not be implemented or available
-                print(f"Health check not available: {e}")
+            import contextlib
+
+            with contextlib.suppress(Exception):
+                await client._health_check()  # This method returns None but should not raise
+                # Health check passed if no exception raised
 
             # Test connection state
             assert client.is_connected is True
@@ -189,7 +190,7 @@ class TestAPIConnectivity:
             assert client.is_connected is False
 
     @pytest.mark.asyncio
-    async def test_rate_limiting_compliance(self, real_api_config):
+    async def test_rate_limiting_compliance(self, real_api_config: Any) -> None:
         """Test that the client respects rate limiting."""
         # Reduce rate limit for testing
         real_api_config.rate_limit_requests_per_minute = 60  # 1 per second
@@ -203,15 +204,15 @@ class TestAPIConnectivity:
             start_time = datetime.now()
             request_times = []
 
-            for i in range(3):
+            for _i in range(3):
                 request_start = datetime.now()
 
                 try:
                     # Attempt to make a request (this will trigger rate limiting)
                     await client._wait_for_rate_limit()
                     request_times.append((datetime.now() - request_start).total_seconds())
-                except Exception as e:
-                    print(f"Request {i} failed: {e}")
+                except Exception:  # noqa: S110
+                    pass  # Expected in rate limit testing
 
             total_time = (datetime.now() - start_time).total_seconds()
 
@@ -223,7 +224,7 @@ class TestAPIConnectivity:
             await client.disconnect()
 
     @pytest.mark.asyncio
-    async def test_error_handling_with_real_api(self, real_api_config):
+    async def test_error_handling_with_real_api(self, real_api_config: Any) -> None:
         """Test error handling with real API responses."""
         client = StreamingClient(real_api_config)
 
@@ -232,7 +233,7 @@ class TestAPIConnectivity:
 
             # Test with invalid timepoint to trigger an error
             try:
-                async for event in client.stream_events(timepoint=-1):  # Invalid timepoint
+                async for _event in client.stream_events(timepoint=-1):  # Invalid timepoint
                     # Should not reach here if error handling works
                     break
             except Exception as e:
@@ -258,25 +259,20 @@ class TestStreamingDataFlow:
     """Test actual streaming data flow with real API."""
 
     @pytest.mark.asyncio
-    async def test_short_streaming_session(self, real_api_config):
+    async def test_short_streaming_session(self, real_api_config: Any) -> None:
         """Test a short streaming session to verify data flow."""
         client = StreamingClient(real_api_config)
 
         # Set up logging
         logger = StructuredLogger(
-            real_api_config,
-            log_file="logs/api_connectivity_test.log",
-            log_level=LogLevel.INFO
+            real_api_config, log_file="logs/api_connectivity_test.log", log_level=LogLevel.INFO
         )
 
         try:
             await client.connect()
             await logger.start()
 
-            context = LogContext(
-                operation="api_connectivity_test",
-                request_id="test_stream_001"
-            )
+            context = LogContext(operation="api_connectivity_test", request_id="test_stream_001")
 
             await logger.info("Starting streaming connectivity test", context)
 
@@ -299,30 +295,38 @@ class TestStreamingDataFlow:
                             "event_type": event.get("resource_kind"),
                             "resource_id": event.get("resource_id"),
                             "has_data": "data" in event,
-                            "has_timepoint": "event" in event and "timepoint" in event.get("event", {})
-                        }
+                            "has_timepoint": "event" in event
+                            and "timepoint" in event.get("event", {}),
+                        },
                     )
 
                     # Stop after receiving a few events or timeout
-                    if event_count >= max_events or (datetime.now() - start_time).total_seconds() > timeout_seconds:
+                    if (
+                        event_count >= max_events
+                        or (datetime.now() - start_time).total_seconds() > timeout_seconds
+                    ):
                         break
 
                 # Verify we received some events (or at least connected successfully)
                 await logger.info(
-                    f"Streaming test completed",
+                    "Streaming test completed",
                     context,
                     {
                         "events_received": event_count,
-                        "duration_seconds": (datetime.now() - start_time).total_seconds()
-                    }
+                        "duration_seconds": (datetime.now() - start_time).total_seconds(),
+                    },
                 )
 
                 # Even if no events were received, successful connection is a pass
-                assert event_count >= 0, "Streaming connection should work even if no events received"
+                assert event_count >= 0, (
+                    "Streaming connection should work even if no events received"
+                )
 
             except asyncio.TimeoutError:
                 await logger.warning("Streaming test timed out", context)
-                pytest.skip("Streaming test timed out - this may be normal if no events are available")
+                pytest.skip(
+                    "Streaming test timed out - this may be normal if no events are available"
+                )
 
             except aiohttp.ClientError as e:
                 await logger.error("Streaming connection error", context, {"error": str(e)})
@@ -342,7 +346,7 @@ class TestStreamingDataFlow:
             await client.disconnect()
 
     @pytest.mark.asyncio
-    async def test_streaming_event_validation(self, real_api_config):
+    async def test_streaming_event_validation(self, real_api_config: Any) -> None:
         """Test validation of real streaming events."""
         client = StreamingClient(real_api_config)
 
@@ -366,7 +370,7 @@ class TestStreamingDataFlow:
                 expected_fields = ["resource_kind", "resource_id"]
                 for field in expected_fields:
                     if field not in event:
-                        print(f"Warning: Event missing expected field '{field}': {event}")
+                        pass  # noqa: S110
 
                 # If event has data, validate it's a dict
                 if "data" in event:
@@ -377,11 +381,17 @@ class TestStreamingDataFlow:
                     assert isinstance(event["event"], dict), "Event meta should be a dictionary"
 
                     # Check for timepoint
+                    assert event is not None
                     if "timepoint" in event["event"]:
-                        assert isinstance(event["event"]["timepoint"], int), "Timepoint should be an integer"
+                        assert isinstance(event["event"]["timepoint"], int), (
+                            "Timepoint should be an integer"
+                        )
 
                 # Stop after validation or timeout
-                if event_count >= max_events or (datetime.now() - start_time).total_seconds() > timeout_seconds:
+                if (
+                    event_count >= max_events
+                    or (datetime.now() - start_time).total_seconds() > timeout_seconds
+                ):
                     break
 
             # Test passes if we successfully validated events or connected without errors
@@ -400,13 +410,13 @@ class TestAPIErrorScenarios:
     """Test various error scenarios with real API."""
 
     @pytest.mark.asyncio
-    async def test_invalid_credentials(self):
+    async def test_invalid_credentials(self) -> None:
         """Test behavior with invalid API credentials."""
         # Create config with invalid credentials
         invalid_config = StreamingConfig(
             streaming_api_key="invalid-key-12345",
             database_path=":memory:",
-            api_base_url="https://api.companieshouse.gov.uk"
+            api_base_url="https://api.companieshouse.gov.uk",
         )
 
         client = StreamingClient(invalid_config)
@@ -418,23 +428,25 @@ class TestAPIErrorScenarios:
             async with aiohttp.ClientSession() as session:
                 headers = {
                     "Authorization": f"Bearer {invalid_config.streaming_api_key}",
-                    "User-Agent": "companies-house-streaming-test/1.0"
+                    "User-Agent": "companies-house-streaming-test/1.0",
                 }
 
                 async with session.get(
                     "https://api.companieshouse.gov.uk/search/companies",
                     headers=headers,
                     params={"q": "test", "items_per_page": "1"},
-                    timeout=aiohttp.ClientTimeout(total=10)
+                    timeout=aiohttp.ClientTimeout(total=10),
                 ) as response:
                     # Should get 401 Unauthorized
-                    assert response.status == 401, f"Expected 401 for invalid credentials, got {response.status}"
+                    assert response.status == 401, (
+                        f"Expected 401 for invalid credentials, got {response.status}"
+                    )
 
         finally:
             await client.disconnect()
 
     @pytest.mark.asyncio
-    async def test_network_timeout_handling(self, real_api_config):
+    async def test_network_timeout_handling(self, real_api_config: Any) -> None:
         """Test handling of network timeouts."""
         # Set very short timeout
         real_api_config.connection_timeout = 0.001  # 1ms - guaranteed to timeout
@@ -447,7 +459,7 @@ class TestAPIErrorScenarios:
                 await client.connect()
 
                 # If connect somehow succeeds, try streaming with timeout
-                async for event in client.stream_events():
+                async for _event in client.stream_events():
                     break  # Should timeout before getting here
 
         except Exception as e:
@@ -458,12 +470,12 @@ class TestAPIErrorScenarios:
             await client.disconnect()
 
     @pytest.mark.asyncio
-    async def test_malformed_url_handling(self):
+    async def test_malformed_url_handling(self) -> None:
         """Test handling of malformed API URLs."""
         malformed_config = StreamingConfig(
             streaming_api_key=os.getenv("COMPANIES_HOUSE_STREAMING_API_KEY", "test-key"),
             database_path=":memory:",
-            api_base_url="https://invalid-url-that-does-not-exist.example.com"
+            api_base_url="https://invalid-url-that-does-not-exist.example.com",
         )
 
         client = StreamingClient(malformed_config)
@@ -474,7 +486,7 @@ class TestAPIErrorScenarios:
                 await client.connect()
 
                 # Try to stream from invalid URL
-                async for event in client.stream_events():
+                async for _event in client.stream_events():
                     break  # Should not reach here
 
         finally:
@@ -486,7 +498,7 @@ class TestExtendedAPITesting:
     """Extended API testing (marked as slow)."""
 
     @pytest.mark.asyncio
-    async def test_extended_streaming_session(self, real_api_config):
+    async def test_extended_streaming_session(self, real_api_config: Any) -> None:
         """Test extended streaming session (runs longer)."""
         client = StreamingClient(real_api_config)
 
@@ -500,16 +512,17 @@ class TestExtendedAPITesting:
 
             start_time = datetime.now()
 
-            async for event in client.stream_events():
+            async for _event in client.stream_events():
                 event_count += 1
 
                 if event_count % 10 == 0:
-                    print(f"Received {event_count} events...")
+                    pass  # noqa: S110
 
-                if event_count >= max_events or (datetime.now() - start_time).total_seconds() > timeout_seconds:
+                if (
+                    event_count >= max_events
+                    or (datetime.now() - start_time).total_seconds() > timeout_seconds
+                ):
                     break
-
-            print(f"Extended streaming test completed: {event_count} events in {(datetime.now() - start_time).total_seconds():.1f} seconds")
 
         except Exception as e:
             pytest.skip(f"Extended streaming test failed: {e}")
@@ -518,7 +531,7 @@ class TestExtendedAPITesting:
             await client.disconnect()
 
     @pytest.mark.asyncio
-    async def test_rate_limit_enforcement(self, real_api_config):
+    async def test_rate_limit_enforcement(self, real_api_config: Any) -> None:
         """Test that API actually enforces rate limits."""
         # This test intentionally tries to exceed rate limits
         client = StreamingClient(real_api_config)
@@ -532,7 +545,7 @@ class TestExtendedAPITesting:
             async with aiohttp.ClientSession() as session:
                 headers = {
                     "Authorization": f"Bearer {real_api_config.streaming_api_key}",
-                    "User-Agent": "companies-house-streaming-test/1.0"
+                    "User-Agent": "companies-house-streaming-test/1.0",
                 }
 
                 # Make rapid requests
@@ -542,11 +555,11 @@ class TestExtendedAPITesting:
                             "https://api.companieshouse.gov.uk/search/companies",
                             headers=headers,
                             params={"q": f"test{i}", "items_per_page": "1"},
-                            timeout=aiohttp.ClientTimeout(total=5)
+                            timeout=aiohttp.ClientTimeout(total=5),
                         ) as response:
                             responses.append(response.status)
-                    except Exception as e:
-                        responses.append(f"Error: {e}")
+                    except Exception:
+                        responses.append(-1)  # Use -1 to indicate error
 
                     # Small delay between requests
                     await asyncio.sleep(0.1)
@@ -555,9 +568,9 @@ class TestExtendedAPITesting:
             rate_limited = any(status == 429 for status in responses if isinstance(status, int))
 
             if rate_limited:
-                print("Rate limiting detected - API is enforcing limits")
+                pass  # noqa: S110
             else:
-                print("No rate limiting detected in test")
+                pass  # noqa: S110
 
             # Test passes regardless - we're just checking behavior
             assert len(responses) > 0

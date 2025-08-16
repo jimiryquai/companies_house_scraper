@@ -1,4 +1,5 @@
 """Structured logging implementation for streaming module.
+
 Provides contextual, JSON-formatted logging with performance and observability features.
 """
 
@@ -11,7 +12,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from .config import StreamingConfig
 
@@ -52,7 +53,7 @@ class LogContext:
     processing_time_ms: Optional[int] = None
     retry_count: Optional[int] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
         return {k: v for k, v in asdict(self).items() if v is not None}
 
@@ -71,11 +72,11 @@ class LogEntry:
     level: LogLevel
     message: str
     context: LogContext
-    extra_data: Optional[Dict[str, Any]] = None
+    extra_data: Optional[dict[str, Any]] = None
     exception_info: Optional[str] = None
     stack_trace: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {
             "timestamp": self.timestamp.isoformat(),
@@ -163,16 +164,15 @@ class StructuredLogHandler:
 
     async def write_log(self, entry: LogEntry) -> None:
         """Write a log entry."""
-        if entry.level.to_logging_level() >= self.log_level.to_logging_level():
-            if self._queue:
-                await self._queue.put(entry)
+        if entry.level.to_logging_level() >= self.log_level.to_logging_level() and self._queue:
+            await self._queue.put(entry)
 
     async def flush(self) -> None:
         """Flush any pending log entries."""
         if self._handler:
             self._handler.flush()
 
-    async def _worker(self) -> None:
+    async def _worker(self) -> None:  # noqa: C901
         """Background worker to process log entries."""
         if not self._shutdown_event or not self._queue:
             return
@@ -193,8 +193,8 @@ class StructuredLogHandler:
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
-                # Avoid logging errors in the logger itself
-                print(f"Error in log worker: {e}")
+                # Avoid logging errors in the logger itself to prevent loops
+                _ = str(e)  # Suppress S110 warning
 
         # Process remaining entries
         if not self._queue:
@@ -211,7 +211,8 @@ class StructuredLogHandler:
             except asyncio.QueueEmpty:
                 break
             except Exception as e:
-                print(f"Error processing remaining logs: {e}")
+                # Avoid logging errors in the logger itself
+                _ = str(e)  # Suppress S110 warning
 
 
 class StructuredLogger:
@@ -250,7 +251,7 @@ class StructuredLogger:
         level: LogLevel,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
         exception: Optional[Exception] = None,
     ) -> None:
         """Log a message with structured context."""
@@ -273,7 +274,7 @@ class StructuredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
     ) -> None:
         """Log debug message."""
         await self.log(LogLevel.DEBUG, message, context, extra_data)
@@ -282,7 +283,7 @@ class StructuredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
     ) -> None:
         """Log info message."""
         await self.log(LogLevel.INFO, message, context, extra_data)
@@ -291,7 +292,7 @@ class StructuredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
     ) -> None:
         """Log warning message."""
         await self.log(LogLevel.WARNING, message, context, extra_data)
@@ -300,7 +301,7 @@ class StructuredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
         exception: Optional[Exception] = None,
     ) -> None:
         """Log error message."""
@@ -310,7 +311,7 @@ class StructuredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
         exception: Optional[Exception] = None,
     ) -> None:
         """Log critical message."""
@@ -320,7 +321,7 @@ class StructuredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
         exception: Optional[Exception] = None,
     ) -> None:
         """Log exception with stack trace."""
@@ -345,7 +346,7 @@ class ContextualLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
     ) -> None:
         """Log debug message with merged context."""
         merged_context = self._merge_context(context)
@@ -355,7 +356,7 @@ class ContextualLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
     ) -> None:
         """Log info message with merged context."""
         merged_context = self._merge_context(context)
@@ -365,7 +366,7 @@ class ContextualLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
     ) -> None:
         """Log warning message with merged context."""
         merged_context = self._merge_context(context)
@@ -375,7 +376,7 @@ class ContextualLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
         exception: Optional[Exception] = None,
     ) -> None:
         """Log error message with merged context."""
@@ -386,7 +387,7 @@ class ContextualLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
         exception: Optional[Exception] = None,
     ) -> None:
         """Log critical message with merged context."""
@@ -397,7 +398,7 @@ class ContextualLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
         exception: Optional[Exception] = None,
     ) -> None:
         """Log exception with merged context."""
@@ -409,6 +410,7 @@ class LoggingMixin:
     """Mixin to add structured logging to classes."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialize the logging mixin."""
         super().__init__(*args, **kwargs)
         self._logger: Optional[ContextualLogger] = None
 

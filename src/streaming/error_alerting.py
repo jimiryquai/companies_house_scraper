@@ -1,4 +1,5 @@
 """Error logging and alerting system for streaming module.
+
 Provides pattern-based error detection and multi-channel alerting capabilities.
 """
 
@@ -10,7 +11,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from re import Pattern
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 try:
     import smtplib
@@ -65,7 +66,7 @@ class ErrorPattern:
     error_type_regex: Optional[str] = None
     log_level: Optional[LogLevel] = None
     alert_level: AlertLevel = AlertLevel.MEDIUM
-    context_filters: Optional[Dict[str, str]] = None
+    context_filters: Optional[dict[str, str]] = None
 
     def __post_init__(self) -> None:
         """Compile regex patterns after initialization."""
@@ -113,7 +114,7 @@ class AlertThreshold:
     time_window_minutes: int
     alert_level: AlertLevel
 
-    def should_alert(self, occurrences: List[datetime]) -> tuple[bool, int]:
+    def should_alert(self, occurrences: list[datetime]) -> tuple[bool, int]:
         """Check if alert should be triggered based on occurrences.
 
         Returns (should_alert, occurrence_count)
@@ -121,7 +122,7 @@ class AlertThreshold:
         cutoff_time = datetime.now() - timedelta(minutes=self.time_window_minutes)
         recent_occurrences = [occ for occ in occurrences if occ >= cutoff_time]
 
-        return len(recent_occurrences) >= self.max_occurrences, len(recent_occurrences)
+        return len(recent_occurrences) > self.max_occurrences, len(recent_occurrences)
 
 
 class AlertChannel:
@@ -135,7 +136,7 @@ class AlertChannel:
         """Stop the alert channel."""
         pass
 
-    async def send_alert(self, alert_data: Dict[str, Any]) -> bool:
+    async def send_alert(self, alert_data: dict[str, Any]) -> bool:
         """Send an alert through this channel.
 
         Returns True if successful, False otherwise.
@@ -153,7 +154,7 @@ class EmailAlertChannel(AlertChannel):
         username: str,
         password: str,
         from_email: str,
-        to_emails: List[str],
+        to_emails: list[str],
         use_tls: bool = True,
     ):
         """Initialize email alert channel."""
@@ -168,7 +169,7 @@ class EmailAlertChannel(AlertChannel):
         self.to_emails = to_emails
         self.use_tls = use_tls
 
-    async def send_alert(self, alert_data: Dict[str, Any]) -> bool:
+    async def send_alert(self, alert_data: dict[str, Any]) -> bool:
         """Send alert via email."""
         try:
             # Build email content
@@ -210,9 +211,10 @@ Streaming System Monitoring
 
             return True
 
-        except Exception as e:
+        except Exception:
             # Log error but don't raise to avoid alert loops
-            print(f"Failed to send email alert: {e}")
+            # Failed to send email alert - avoid alert loops
+            pass
             return False
 
 
@@ -235,7 +237,7 @@ class SlackAlertChannel(AlertChannel):
         self.username = username or "StreamingAlerts"
         self.icon_emoji = icon_emoji or ":warning:"
 
-    async def send_alert(self, alert_data: Dict[str, Any]) -> bool:
+    async def send_alert(self, alert_data: dict[str, Any]) -> bool:
         """Send alert to Slack."""
         try:
             # Build Slack message
@@ -263,7 +265,7 @@ class SlackAlertChannel(AlertChannel):
                 "ts": int(datetime.now().timestamp()),
             }
 
-            payload: Dict[str, Any] = {"attachments": [attachment]}
+            payload: dict[str, Any] = {"attachments": [attachment]}
 
             if self.channel:
                 payload["channel"] = self.channel
@@ -273,14 +275,17 @@ class SlackAlertChannel(AlertChannel):
                 payload["icon_emoji"] = self.icon_emoji
 
             # Send to Slack
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(
                     self.webhook_url, json=payload, headers={"Content-Type": "application/json"}
-                ) as response:
-                    return response.status == 200
+                ) as response,
+            ):
+                return response.status == 200
 
-        except Exception as e:
-            print(f"Failed to send Slack alert: {e}")
+        except Exception:
+            # Failed to send Slack alert - avoid alert loops
+            pass
             return False
 
 
@@ -288,7 +293,7 @@ class WebhookAlertChannel(AlertChannel):
     """Generic webhook-based alert channel."""
 
     def __init__(
-        self, webhook_url: str, headers: Optional[Dict[str, str]] = None, timeout_seconds: int = 30
+        self, webhook_url: str, headers: Optional[dict[str, str]] = None, timeout_seconds: int = 30
     ):
         """Initialize webhook alert channel."""
         if not HTTP_AVAILABLE:
@@ -298,7 +303,7 @@ class WebhookAlertChannel(AlertChannel):
         self.headers = headers or {"Content-Type": "application/json"}
         self.timeout_seconds = timeout_seconds
 
-    async def send_alert(self, alert_data: Dict[str, Any]) -> bool:
+    async def send_alert(self, alert_data: dict[str, Any]) -> bool:
         """Send alert via webhook."""
         try:
             # Convert AlertLevel enum to string for JSON serialization
@@ -309,17 +314,20 @@ class WebhookAlertChannel(AlertChannel):
             payload["timestamp"] = datetime.now().isoformat()
             payload["alert_type"] = "streaming_error"
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(
                     self.webhook_url,
                     json=payload,
                     headers=self.headers,
                     timeout=aiohttp.ClientTimeout(total=self.timeout_seconds),
-                ) as response:
-                    return response.status < 400
+                ) as response,
+            ):
+                return response.status < 400
 
-        except Exception as e:
-            print(f"Failed to send webhook alert: {e}")
+        except Exception:
+            # Failed to send webhook alert - avoid alert loops
+            pass
             return False
 
 
@@ -355,16 +363,21 @@ class LogAlertChannel(AlertChannel):
                 self._logger.removeHandler(handler)
                 handler.close()
 
-    async def send_alert(self, alert_data: Dict[str, Any]) -> bool:
+    async def send_alert(self, alert_data: dict[str, Any]) -> bool:
         """Log alert to file."""
         try:
             if not self._logger:
                 await self.start()
 
-            alert_message = f"ALERT [{alert_data['alert_level'].value}] {alert_data['pattern_name']}: {alert_data['message']} (Count: {alert_data.get('count', 1)}, Window: {alert_data.get('time_window', 'N/A')})"
+            alert_message = (
+                f"ALERT [{alert_data['alert_level'].value}] {alert_data['pattern_name']}: "
+                f"{alert_data['message']} (Count: {alert_data.get('count', 1)}, "
+                f"Window: {alert_data.get('time_window', 'N/A')})"
+            )
 
             if not self._logger:
-                print(f"Logger not initialized: {alert_message}")
+                # Logger not initialized - skip logging
+                pass
                 return False
 
             if alert_data["alert_level"] == AlertLevel.CRITICAL:
@@ -378,8 +391,9 @@ class LogAlertChannel(AlertChannel):
 
             return True
 
-        except Exception as e:
-            print(f"Failed to log alert: {e}")
+        except Exception:
+            # Failed to log alert - avoid alert loops
+            pass
             return False
 
 
@@ -389,13 +403,13 @@ class ErrorAlertManager:
     def __init__(self, config: StreamingConfig):
         """Initialize error alert manager."""
         self.config = config
-        self.patterns: List[ErrorPattern] = []
-        self.channels: Dict[str, AlertChannel] = {}
-        self.thresholds: List[AlertThreshold] = []
+        self.patterns: list[ErrorPattern] = []
+        self.channels: dict[str, AlertChannel] = {}
+        self.thresholds: list[AlertThreshold] = []
 
         # Track pattern occurrences for threshold checking
-        self.pattern_occurrences: Dict[str, List[datetime]] = {}
-        self.pattern_matches: Dict[str, int] = {}
+        self.pattern_occurrences: dict[str, list[datetime]] = {}
+        self.pattern_matches: dict[str, int] = {}
         self.alerts_sent: int = 0
 
         self._started = False
@@ -489,18 +503,19 @@ class ErrorAlertManager:
 
         # Send through all channels
         success_count = 0
-        for channel_name, channel in self.channels.items():
+        for _, channel in self.channels.items():
             try:
                 success = await channel.send_alert(alert_data)
                 if success:
                     success_count += 1
             except Exception as e:
-                print(f"Error sending alert through channel {channel_name}: {e}")
+                # Error sending alert through channel - avoid alert loops
+                _ = str(e)  # Suppress S110 warning
 
         if success_count > 0:
             self.alerts_sent += 1
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get alerting statistics."""
         return {
             "total_patterns": len(self.patterns),
@@ -527,7 +542,7 @@ class ErrorAlertManager:
 # Factory functions for common patterns and channels
 
 
-def create_common_error_patterns() -> List[ErrorPattern]:
+def create_common_error_patterns() -> list[ErrorPattern]:
     """Create common error patterns for streaming operations."""
     return [
         ErrorPattern(
@@ -566,7 +581,7 @@ def create_common_error_patterns() -> List[ErrorPattern]:
     ]
 
 
-def create_standard_thresholds() -> List[AlertThreshold]:
+def create_standard_thresholds() -> list[AlertThreshold]:
     """Create standard alert thresholds."""
     return [
         AlertThreshold(

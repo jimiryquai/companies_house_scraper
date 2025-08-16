@@ -8,7 +8,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 
 from .config import StreamingConfig
 
@@ -32,20 +32,23 @@ class CompanyEvent:
     company_status: Optional[str]
     timepoint: int
     published_at: Optional[str] = None
-    raw_data: Optional[Dict[str, Any]] = None
+    raw_data: Optional[dict[str, Any]] = None
 
     @classmethod
-    def from_dict(cls, event_data: Dict[str, Any]) -> "CompanyEvent":
+    def from_dict(cls, event_data: dict[str, Any]) -> "CompanyEvent":
         """Create CompanyEvent from raw event dictionary."""
         data = event_data.get("data", {})
         event_meta = event_data.get("event", {})
+
+        # Only use company_status_detail - company_status is too generic
+        status = data.get("company_status_detail")
 
         return cls(
             resource_kind=event_data.get("resource_kind", ""),
             resource_id=event_data.get("resource_id", ""),
             company_number=data.get("company_number", ""),
             company_name=data.get("company_name"),
-            company_status=data.get("company_status"),
+            company_status=status,
             timepoint=event_meta.get("timepoint", 0),
             published_at=event_meta.get("published_at"),
             raw_data=event_data,
@@ -56,16 +59,16 @@ class CompanyEvent:
         if not self.company_status:
             return False
 
-        strike_off_statuses = [
-            "active-proposal-to-strike-off",
-            "proposal-to-strike-off",
-            "struck-off",
-        ]
+        # Check for actual strike-off status patterns as they appear in the database
+        status_lower = self.company_status.lower()
 
-        status_lower = self.company_status.lower().replace(" ", "-")
-        return any(status in status_lower for status in strike_off_statuses)
+        return (
+            "proposal to strike off" in status_lower
+            or "struck off" in status_lower
+            or "strike off" in status_lower
+        )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert CompanyEvent back to dictionary format."""
         return {
             "resource_kind": self.resource_kind,
@@ -96,7 +99,7 @@ class EventProcessor:
         self.start_time = datetime.now()
 
         # Event handling
-        self.event_handlers: Dict[str, Callable[..., Any]] = {}
+        self.event_handlers: dict[str, Callable[..., Any]] = {}
         self._shutdown_event = asyncio.Event()
 
         # Setup logging
@@ -117,7 +120,7 @@ class EventProcessor:
         self.event_handlers[event_type] = handler
         logger.info(f"Registered handler for event type: {event_type}")
 
-    async def process_event(self, event_data: Dict[str, Any], timeout: float = 30.0) -> bool:
+    async def process_event(self, event_data: dict[str, Any], timeout: float = 30.0) -> bool:
         """Process a single event with timeout handling.
 
         Args:
@@ -170,7 +173,7 @@ class EventProcessor:
             logger.error(f"Failed to process event: {e}", exc_info=True)
             return False
 
-    async def process_batch(self, events: List[Dict[str, Any]]) -> List[bool]:
+    async def process_batch(self, events: list[dict[str, Any]]) -> list[bool]:
         """Process a batch of events.
 
         Args:
@@ -198,7 +201,7 @@ class EventProcessor:
 
         return processed_results
 
-    def _validate_event(self, event_data: Dict[str, Any]) -> None:
+    def _validate_event(self, event_data: dict[str, Any]) -> None:
         """Validate event data structure.
 
         Args:
@@ -226,7 +229,7 @@ class EventProcessor:
         if resource_kind.startswith("company") and "company_number" not in data:
             raise EventValidationError("Missing company_number in company event")
 
-    def _extract_company_data(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _extract_company_data(self, event_data: dict[str, Any]) -> dict[str, Any]:
         """Extract company data from event for database storage.
 
         Args:
@@ -245,7 +248,7 @@ class EventProcessor:
         else:
             sic_codes_str = sic_codes
 
-        company_data = {
+        return {
             "company_number": data.get("company_number"),
             "company_name": data.get("company_name"),
             "company_status": data.get("company_status"),
@@ -261,9 +264,7 @@ class EventProcessor:
             "premises": address.get("premises"),
         }
 
-        return company_data
-
-    async def _default_event_handler(self, event_data: Dict[str, Any]) -> None:
+    async def _default_event_handler(self, event_data: dict[str, Any]) -> None:
         """Default handler for events with no specific handler.
 
         Args:
@@ -284,7 +285,7 @@ class EventProcessor:
                     f"Strike-off status detected for company {company_event.company_number}"
                 )
 
-    def get_processing_stats(self) -> Dict[str, Any]:
+    def get_processing_stats(self) -> dict[str, Any]:
         """Get processing statistics.
 
         Returns:

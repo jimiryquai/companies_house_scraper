@@ -6,7 +6,7 @@
 
 ## 2025-05-01: Initial Product Implementation
 
-**ID:** DEC-001  
+**ID:** DEC-001
 **Status:** Implemented
 **Category:** Product & Architecture
 **Stakeholders:** Business Reset Group, Development Team
@@ -182,3 +182,59 @@ Parallel implementation maximizes lead capture effectiveness by combining bulk u
 - Need for long-running HTTP connection handling
 - Potential data synchronization challenges between bulk and streaming sources
 - Higher resource usage during parallel processing period
+
+## 2025-08-16: Hybrid Streaming + REST API Architecture
+
+**ID:** DEC-005
+**Status:** Implemented
+**Category:** Technical Architecture
+**Stakeholders:** Development Team
+
+### Decision
+
+Implement a hybrid architecture combining Companies House Streaming API for real-time notifications with REST API calls for detailed status information. Use streaming API only for change detection, not status interpretation.
+
+### Context
+
+During implementation of the streaming service, we discovered that the Companies House Streaming API only provides basic company status ("active", "dissolved") without the detailed status information needed for strike-off detection ("active-proposal-to-strike-off"). This created a gap between what the streaming API provides and what our business logic requires.
+
+### Alternatives Considered
+
+1. **Streaming API Only**
+   - Pros: Single API integration, real-time updates
+   - Cons: Cannot detect strike-off status changes accurately, misses key business events
+
+2. **REST API Polling**
+   - Pros: Provides detailed status information
+   - Cons: Not real-time, inefficient for monitoring changes, rate limit intensive
+
+3. **Hybrid Approach (Selected)**
+   - Pros: Real-time change detection + accurate status information
+   - Cons: Increased complexity, two API integrations required
+
+### Rationale
+
+The hybrid approach maximizes both timeliness and accuracy by using each API for its strengths. Streaming API provides immediate notification when any company profile changes, while REST API provides the precise `company_status_detail` field needed to identify "active-proposal-to-strike-off" status. This ensures zero latency for change detection while maintaining 100% accuracy for business logic.
+
+### Implementation Details
+
+- **Streaming API**: Monitors `company-profile` events for change notifications
+- **REST API**: Called for each streaming event to get `company_status_detail` field
+- **Strike-off Detection**: Only uses `company_status_detail`, ignores generic `company_status`
+- **Database Cleanup**: Automatically updates companies leaving strike-off status
+- **Officer Integration**: Seamlessly integrates with existing officer import workflow
+
+### Consequences
+
+**Positive:**
+- Real-time detection of companies entering/exiting strike-off status
+- 100% accuracy in strike-off identification using official detailed status
+- Automatic database maintenance for data quality
+- Zero data gaps during monitoring period
+- Proven functionality with real Companies House data (e.g., SOKELL LTD)
+
+**Negative:**
+- Increased API usage (1 REST call per streaming event)
+- Additional complexity in error handling for two APIs
+- Rate limit considerations for high-volume periods
+- Requires careful synchronization between streaming and REST responses

@@ -46,7 +46,7 @@ api_endpoints:
   officers: "/company/{company_number}/officers"
   psc: "/company/{company_number}/persons-with-significant-control"
   stream_companies: "/companies"
-  stream_officers: "/officers"
+
 # Scraper Settings (Optional - Defaults defined in strike_off_scraper.py)
 # max_strike_off_results: 100 # Max companies with strike-off status to find
 # save_all_active_final: false # Set to true to save all active companies found

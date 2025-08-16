@@ -5,26 +5,27 @@ Tests the health check, monitoring, and status reporting capabilities
 of the streaming client to ensure reliable operation detection.
 """
 
-import asyncio
-import pytest
 from datetime import datetime, timedelta
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from aiohttp import ClientError, ClientResponse, ClientSession
-from aiohttp.client_exceptions import ClientConnectorError, ServerTimeoutError
+from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
+from aiohttp import ClientError
+from aiohttp.client_exceptions import ServerTimeoutError
 
 from src.streaming.client import StreamingClient
 from src.streaming.config import StreamingConfig
 
 
 @pytest.fixture
-def streaming_config():
+def streaming_config() -> Any:
     """Create test streaming configuration."""
     config = Mock(spec=StreamingConfig)
-    config.streaming_api_key = 'test-key'
-    config.api_base_url = 'https://stream-api.company-information.service.gov.uk'
+    config.streaming_api_key = "test-key"
+    config.api_base_url = "https://stream-api.company-information.service.gov.uk"
     config.connection_timeout = 30
     config.health_check_interval = 60
-    config.log_level = 'INFO'
+    config.log_level = "INFO"
     config.log_file = None
     config.rate_limit_requests_per_minute = 600
     config.initial_backoff = 1.0
@@ -34,7 +35,7 @@ def streaming_config():
 
 
 @pytest.fixture
-def streaming_client(streaming_config):
+def streaming_client(streaming_config: Any) -> Any:
     """Create streaming client for testing."""
     return StreamingClient(streaming_config)
 
@@ -43,10 +44,10 @@ class TestHealthCheckFunctionality:
     """Test health check functionality."""
 
     @pytest.mark.asyncio
-    async def test_health_check_success(self, streaming_client):
+    async def test_health_check_success(self, streaming_client: Any) -> None:
         """Test successful health check."""
         # Mock session and response using patch
-        with patch('aiohttp.ClientSession.get') as mock_get:
+        with patch("aiohttp.ClientSession.get") as mock_get:
             mock_response = Mock()
             mock_response.status = 200
 
@@ -65,13 +66,13 @@ class TestHealthCheckFunctionality:
 
             # Verify API call made correctly
             mock_get.assert_called_once_with(
-                'https://stream-api.company-information.service.gov.uk/healthcheck'
+                "https://stream-api.company-information.service.gov.uk/healthcheck"
             )
 
     @pytest.mark.asyncio
-    async def test_health_check_unauthorized(self, streaming_client):
+    async def test_health_check_unauthorized(self, streaming_client: Any) -> None:
         """Test health check with unauthorized status."""
-        with patch('aiohttp.ClientSession.get') as mock_get:
+        with patch("aiohttp.ClientSession.get") as mock_get:
             mock_response = Mock()
             mock_response.status = 401
 
@@ -88,12 +89,12 @@ class TestHealthCheckFunctionality:
                 await streaming_client._health_check()
 
     @pytest.mark.asyncio
-    async def test_health_check_rate_limited(self, streaming_client):
+    async def test_health_check_rate_limited(self, streaming_client: Any) -> None:
         """Test health check with rate limit status."""
-        with patch('aiohttp.ClientSession.get') as mock_get:
+        with patch("aiohttp.ClientSession.get") as mock_get:
             mock_response = Mock()
             mock_response.status = 429
-            mock_response.headers = {'Retry-After': '60'}
+            mock_response.headers = {"Retry-After": "60"}
 
             mock_context = AsyncMock()
             mock_context.__aenter__.return_value = mock_response
@@ -108,9 +109,9 @@ class TestHealthCheckFunctionality:
                 await streaming_client._health_check()
 
     @pytest.mark.asyncio
-    async def test_health_check_server_error(self, streaming_client):
+    async def test_health_check_server_error(self, streaming_client: Any) -> None:
         """Test health check with server error."""
-        with patch('aiohttp.ClientSession.get') as mock_get:
+        with patch("aiohttp.ClientSession.get") as mock_get:
             mock_response = Mock()
             mock_response.status = 500
 
@@ -127,9 +128,9 @@ class TestHealthCheckFunctionality:
                 await streaming_client._health_check()
 
     @pytest.mark.asyncio
-    async def test_health_check_connection_error(self, streaming_client):
+    async def test_health_check_connection_error(self, streaming_client: Any) -> None:
         """Test health check with connection error."""
-        with patch('aiohttp.ClientSession.get') as mock_get:
+        with patch("aiohttp.ClientSession.get") as mock_get:
             # Use a general exception for connection errors
             mock_get.side_effect = OSError("Connection failed")
 
@@ -137,13 +138,13 @@ class TestHealthCheckFunctionality:
             streaming_client.session.get = mock_get
 
             # Should re-raise as generic exception (caught in client)
-            with pytest.raises(Exception):
+            with pytest.raises(OSError):  # More specific exception
                 await streaming_client._health_check()
 
     @pytest.mark.asyncio
-    async def test_health_check_timeout(self, streaming_client):
+    async def test_health_check_timeout(self, streaming_client: Any) -> None:
         """Test health check with timeout."""
-        with patch('aiohttp.ClientSession.get') as mock_get:
+        with patch("aiohttp.ClientSession.get") as mock_get:
             mock_get.side_effect = ServerTimeoutError()
 
             streaming_client.session = Mock()
@@ -154,7 +155,7 @@ class TestHealthCheckFunctionality:
                 await streaming_client._health_check()
 
     @pytest.mark.asyncio
-    async def test_health_check_no_session(self, streaming_client):
+    async def test_health_check_no_session(self, streaming_client: Any) -> None:
         """Test health check when session is not initialized."""
         streaming_client.session = None
 
@@ -166,28 +167,28 @@ class TestHealthCheckFunctionality:
 class TestConnectionHealthStatus:
     """Test connection health status checking."""
 
-    def test_is_healthy_when_connected_with_recent_heartbeat(self, streaming_client):
+    def test_is_healthy_when_connected_with_recent_heartbeat(self, streaming_client: Any) -> None:
         """Test is_healthy returns True when connected with recent heartbeat."""
         streaming_client.is_connected = True
         streaming_client.last_heartbeat = datetime.now()
 
         assert streaming_client.is_healthy() is True
 
-    def test_is_healthy_when_not_connected(self, streaming_client):
+    def test_is_healthy_when_not_connected(self, streaming_client: Any) -> None:
         """Test is_healthy returns False when not connected."""
         streaming_client.is_connected = False
         streaming_client.last_heartbeat = datetime.now()
 
         assert streaming_client.is_healthy() is False
 
-    def test_is_healthy_when_no_heartbeat(self, streaming_client):
+    def test_is_healthy_when_no_heartbeat(self, streaming_client: Any) -> None:
         """Test is_healthy returns False when no heartbeat recorded."""
         streaming_client.is_connected = True
         streaming_client.last_heartbeat = None
 
         assert streaming_client.is_healthy() is False
 
-    def test_is_healthy_when_heartbeat_too_old(self, streaming_client):
+    def test_is_healthy_when_heartbeat_too_old(self, streaming_client: Any) -> None:
         """Test is_healthy returns False when heartbeat is too old."""
         streaming_client.is_connected = True
         # Set heartbeat to 2 minutes ago (older than health_check_interval)
@@ -195,7 +196,7 @@ class TestConnectionHealthStatus:
 
         assert streaming_client.is_healthy() is False
 
-    def test_is_healthy_with_custom_health_check_interval(self, streaming_config):
+    def test_is_healthy_with_custom_health_check_interval(self, streaming_config: Any) -> None:
         """Test is_healthy with custom health check interval."""
         streaming_config.health_check_interval = 30  # 30 seconds
         client = StreamingClient(streaming_config)
@@ -210,7 +211,7 @@ class TestConnectionHealthStatus:
 class TestHealthStatusReporting:
     """Test comprehensive health status reporting."""
 
-    def test_get_health_status_complete_info(self, streaming_client):
+    def test_get_health_status_complete_info(self, streaming_client: Any) -> None:
         """Test get_health_status returns complete health information."""
         # Set up client state
         streaming_client.is_connected = True
@@ -224,23 +225,23 @@ class TestHealthStatusReporting:
         status = streaming_client.get_health_status()
 
         # Verify all expected fields are present
-        assert status['is_connected'] is True
-        assert status['last_heartbeat'] is not None
-        assert status['circuit_breaker_state'] == "closed"
-        assert status['error_count'] == 5
-        assert status['degraded_mode'] is False
-        assert status['polling_mode'] is False
-        assert status['connection_attempts'] == 2
+        assert status is not None and status["is_connected"] is True
+        assert status is not None and status["last_heartbeat"] is not None
+        assert status is not None and status["circuit_breaker_state"] == "closed"
+        assert status is not None and status["error_count"] == 5
+        assert status is not None and status["degraded_mode"] is False
+        assert status is not None and status["polling_mode"] is False
+        assert status is not None and status["connection_attempts"] == 2
 
-    def test_get_health_status_no_heartbeat(self, streaming_client):
+    def test_get_health_status_no_heartbeat(self, streaming_client: Any) -> None:
         """Test get_health_status when no heartbeat recorded."""
         streaming_client.last_heartbeat = None
 
         status = streaming_client.get_health_status()
 
-        assert status['last_heartbeat'] is None
+        assert status is not None and status["last_heartbeat"] is None
 
-    def test_get_health_status_degraded_mode(self, streaming_client):
+    def test_get_health_status_degraded_mode(self, streaming_client: Any) -> None:
         """Test get_health_status in degraded mode."""
         streaming_client.is_degraded_mode = True
         streaming_client.is_polling_mode = True
@@ -248,15 +249,15 @@ class TestHealthStatusReporting:
 
         status = streaming_client.get_health_status()
 
-        assert status['degraded_mode'] is True
-        assert status['polling_mode'] is True
-        assert status['circuit_breaker_state'] == "open"
+        assert status is not None and status["degraded_mode"] is True
+        assert status is not None and status["polling_mode"] is True
+        assert status is not None and status["circuit_breaker_state"] == "open"
 
 
 class TestCircuitBreakerMetrics:
     """Test circuit breaker metrics reporting."""
 
-    def test_get_circuit_breaker_metrics_closed_state(self, streaming_client):
+    def test_get_circuit_breaker_metrics_closed_state(self, streaming_client: Any) -> None:
         """Test circuit breaker metrics in closed state."""
         streaming_client._circuit_breaker_state = "closed"
         streaming_client._failure_count = 0
@@ -265,13 +266,13 @@ class TestCircuitBreakerMetrics:
 
         metrics = streaming_client.get_circuit_breaker_metrics()
 
-        assert metrics['state'] == "closed"
-        assert metrics['failure_count'] == 0
-        assert metrics['success_count'] == 10
-        assert metrics['last_failure_time'] is None
-        assert metrics['open_duration'] == 0
+        assert metrics is not None and metrics["state"] == "closed"
+        assert metrics is not None and metrics["failure_count"] == 0
+        assert metrics is not None and metrics["success_count"] == 10
+        assert metrics is not None and metrics["last_failure_time"] is None
+        assert metrics is not None and metrics["open_duration"] == 0
 
-    def test_get_circuit_breaker_metrics_open_state(self, streaming_client):
+    def test_get_circuit_breaker_metrics_open_state(self, streaming_client: Any) -> None:
         """Test circuit breaker metrics in open state."""
         failure_time = datetime.now() - timedelta(seconds=30)
         streaming_client._circuit_breaker_state = "open"
@@ -281,13 +282,13 @@ class TestCircuitBreakerMetrics:
 
         metrics = streaming_client.get_circuit_breaker_metrics()
 
-        assert metrics['state'] == "open"
-        assert metrics['failure_count'] == 5
-        assert metrics['success_count'] == 10
-        assert metrics['last_failure_time'] == failure_time.isoformat()
-        assert 25 < metrics['open_duration'] < 35  # Should be around 30 seconds
+        assert metrics is not None and metrics["state"] == "open"
+        assert metrics is not None and metrics["failure_count"] == 5
+        assert metrics is not None and metrics["success_count"] == 10
+        assert metrics is not None and metrics["last_failure_time"] == failure_time.isoformat()
+        assert 25 < metrics["open_duration"] < 35  # Should be around 30 seconds
 
-    def test_get_circuit_breaker_metrics_half_open_state(self, streaming_client):
+    def test_get_circuit_breaker_metrics_half_open_state(self, streaming_client: Any) -> None:
         """Test circuit breaker metrics in half-open state."""
         streaming_client._circuit_breaker_state = "half_open"
         streaming_client._failure_count = 3
@@ -295,44 +296,41 @@ class TestCircuitBreakerMetrics:
 
         metrics = streaming_client.get_circuit_breaker_metrics()
 
-        assert metrics['state'] == "half_open"
-        assert metrics['failure_count'] == 3
-        assert metrics['success_count'] == 15
+        assert metrics is not None and metrics["state"] == "half_open"
+        assert metrics is not None and metrics["failure_count"] == 3
+        assert metrics is not None and metrics["success_count"] == 15
 
 
 class TestErrorMetrics:
     """Test error metrics reporting."""
 
-    def test_get_error_metrics_no_errors(self, streaming_client):
+    def test_get_error_metrics_no_errors(self, streaming_client: Any) -> None:
         """Test error metrics when no errors occurred."""
         metrics = streaming_client.get_error_metrics()
 
-        assert metrics['total_errors'] == 0
-        assert metrics['error_types'] == {}
-        assert metrics['last_error_time'] is None
-        assert metrics['error_rate'] == 0.0
+        assert metrics is not None and metrics["total_errors"] == 0
+        assert metrics is not None and metrics["error_types"] == {}
+        assert metrics is not None and metrics["last_error_time"] is None
+        assert metrics is not None and metrics["error_rate"] == 0.0
 
-    def test_get_error_metrics_with_errors(self, streaming_client):
+    def test_get_error_metrics_with_errors(self, streaming_client: Any) -> None:
         """Test error metrics with recorded errors."""
         # Simulate some errors
         streaming_client._error_count = 5
-        streaming_client._error_types = {
-            'ClientConnectorError': 2,
-            'ServerTimeoutError': 3
-        }
+        streaming_client._error_types = {"ClientConnectorError": 2, "ServerTimeoutError": 3}
         streaming_client._last_error_time = datetime.now() - timedelta(seconds=10)
 
         metrics = streaming_client.get_error_metrics()
 
-        assert metrics['total_errors'] == 5
-        assert metrics['error_types'] == {
-            'ClientConnectorError': 2,
-            'ServerTimeoutError': 3
+        assert metrics is not None and metrics["total_errors"] == 5
+        assert metrics is not None and metrics["error_types"] == {
+            "ClientConnectorError": 2,
+            "ServerTimeoutError": 3,
         }
-        assert metrics['last_error_time'] is not None
-        assert metrics['error_rate'] > 0  # Should be calculated based on time window
+        assert metrics is not None and metrics["last_error_time"] is not None
+        assert metrics["error_rate"] > 0  # Should be calculated based on time window
 
-    def test_get_error_metrics_calculates_rate(self, streaming_client):
+    def test_get_error_metrics_calculates_rate(self, streaming_client: Any) -> None:
         """Test error rate calculation."""
         # Set error 60 seconds ago
         streaming_client._error_count = 10
@@ -342,56 +340,61 @@ class TestErrorMetrics:
 
         # Error rate should be approximately 10 errors / 60 seconds
         expected_rate = 10 / 60
-        assert abs(metrics['error_rate'] - expected_rate) < 0.01
+        assert abs(metrics["error_rate"] - expected_rate) < 0.01
 
 
 class TestHealthCheckIntegration:
     """Test health check integration with connect/disconnect cycle."""
 
     @pytest.mark.asyncio
-    async def test_connect_calls_health_check(self, streaming_client):
+    async def test_connect_calls_health_check(self, streaming_client: Any) -> None:
         """Test that connect() calls health check."""
-        with patch.object(streaming_client, '_health_check') as mock_health_check:
+        with patch.object(streaming_client, "_health_check") as mock_health_check:
             mock_health_check.return_value = None
 
-            with patch.object(streaming_client, '_wait_for_rate_limit'):
-                with patch('aiohttp.ClientSession') as mock_session_class:
-                    mock_session = AsyncMock()
-                    mock_session_class.return_value = mock_session
+            with (
+                patch.object(streaming_client, "_wait_for_rate_limit"),
+                patch("aiohttp.ClientSession") as mock_session_class,
+            ):
+                mock_session = AsyncMock()
+                mock_session_class.return_value = mock_session
 
-                    await streaming_client.connect()
+                await streaming_client.connect()
 
-                    # Verify health check was called
-                    mock_health_check.assert_called_once()
-                    assert streaming_client.is_connected is True
-                    assert streaming_client.last_heartbeat is not None
+                # Verify health check was called
+                mock_health_check.assert_called_once()
+                assert streaming_client.is_connected is True
+                assert streaming_client.last_heartbeat is not None
 
     @pytest.mark.asyncio
-    async def test_connect_handles_health_check_failure(self, streaming_client):
+    async def test_connect_handles_health_check_failure(self, streaming_client: Any) -> None:
         """Test that connect handles health check failures properly."""
-        with patch.object(streaming_client, '_health_check') as mock_health_check:
+        with patch.object(streaming_client, "_health_check") as mock_health_check:
             mock_health_check.side_effect = ClientError("Health check failed")
 
-            with patch.object(streaming_client, '_wait_for_rate_limit'):
-                with patch.object(streaming_client, 'disconnect') as mock_disconnect:
-                    with patch('aiohttp.ClientSession'):
+            with (
+                patch.object(streaming_client, "_wait_for_rate_limit"),
+                patch.object(streaming_client, "disconnect") as mock_disconnect,
+                patch("aiohttp.ClientSession"),
+                pytest.raises(ClientError),
+            ):
+                await streaming_client.connect()
 
-                        with pytest.raises(ClientError):
-                            await streaming_client.connect()
-
-                        # Verify disconnect was called on failure
-                        mock_disconnect.assert_called_once()
-                        assert streaming_client.is_connected is False
+            # Verify disconnect was called on failure
+            mock_disconnect.assert_called_once()
+            assert streaming_client.is_connected is False
 
     @pytest.mark.asyncio
-    async def test_health_check_updates_circuit_breaker_on_success(self, streaming_client):
+    async def test_health_check_updates_circuit_breaker_on_success(
+        self, streaming_client: Any
+    ) -> None:
         """Test health check success updates circuit breaker state."""
         # Set circuit breaker to half-open
         streaming_client._circuit_breaker_state = "half_open"
         streaming_client._failure_count = 2
 
         # Mock successful health check
-        with patch('aiohttp.ClientSession.get') as mock_get:
+        with patch("aiohttp.ClientSession.get") as mock_get:
             mock_response = Mock()
             mock_response.status = 200
 
@@ -409,12 +412,14 @@ class TestHealthCheckIntegration:
             mock_get.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_health_check_updates_circuit_breaker_on_failure(self, streaming_client):
+    async def test_health_check_updates_circuit_breaker_on_failure(
+        self, streaming_client: Any
+    ) -> None:
         """Test health check failure updates circuit breaker state."""
         streaming_client._failure_count = 2  # Just below threshold
 
         # Mock failed health check
-        with patch('aiohttp.ClientSession.get') as mock_get:
+        with patch("aiohttp.ClientSession.get") as mock_get:
             mock_response = Mock()
             mock_response.status = 500
 
@@ -433,11 +438,11 @@ class TestHealthCheckIntegration:
 class TestConnectionStatusTracking:
     """Test connection status tracking functionality."""
 
-    def test_connection_status_tracking_initialization(self):
+    def test_connection_status_tracking_initialization(self) -> None:
         """Test connection status tracking is properly initialized."""
-        from src.streaming.health_monitor import HealthMonitor, ConnectionMetrics
+        from src.streaming.health_monitor import ConnectionMetrics, HealthMonitor
 
-        config = Mock()
+        Mock()
         client = Mock()
         client.is_connected = False
         client.last_heartbeat = None
@@ -451,7 +456,7 @@ class TestConnectionStatusTracking:
         assert monitor.connection_metrics.last_connection_time is None
 
     @pytest.mark.asyncio
-    async def test_connection_metrics_updates_on_success(self):
+    async def test_connection_metrics_updates_on_success(self) -> None:
         """Test connection metrics update when connection succeeds."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -470,7 +475,7 @@ class TestConnectionStatusTracking:
         assert monitor.connection_metrics.successful_connections == 1
 
     @pytest.mark.asyncio
-    async def test_connection_uptime_calculation(self):
+    async def test_connection_uptime_calculation(self) -> None:
         """Test connection uptime is calculated correctly."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -489,7 +494,7 @@ class TestConnectionStatusTracking:
         assert 25 <= monitor.connection_metrics.connection_uptime <= 35
 
     @pytest.mark.asyncio
-    async def test_connection_metrics_when_disconnected(self):
+    async def test_connection_metrics_when_disconnected(self) -> None:
         """Test connection metrics when client is disconnected."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -504,7 +509,7 @@ class TestConnectionStatusTracking:
         assert monitor.connection_metrics.successful_connections == 0
         assert monitor.connection_metrics.last_connection_time is None
 
-    def test_connection_status_in_health_report(self):
+    def test_connection_status_in_health_report(self) -> None:
         """Test connection status is included in health report."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -523,20 +528,20 @@ class TestConnectionStatusTracking:
 
         report = monitor.get_health_report()
 
-        assert 'connection_metrics' in report
-        conn_metrics = report['connection_metrics']
-        assert conn_metrics['attempts'] == 3
-        assert conn_metrics['successes'] == 2
-        assert conn_metrics['failures'] == 1
-        assert conn_metrics['uptime_seconds'] == 120.5
+        assert "connection_metrics" in report
+        conn_metrics = report["connection_metrics"]
+        assert conn_metrics is not None and conn_metrics["attempts"] == 3
+        assert conn_metrics is not None and conn_metrics["successes"] == 2
+        assert conn_metrics is not None and conn_metrics["failures"] == 1
+        assert conn_metrics is not None and conn_metrics["uptime_seconds"] == 120.5
 
-        assert 'client_status' in report
-        client_status = report['client_status']
-        assert client_status['connected'] is True
-        assert client_status['degraded_mode'] is False
-        assert client_status['polling_mode'] is False
+        assert "client_status" in report
+        client_status = report["client_status"]
+        assert client_status is not None and client_status["connected"] is True
+        assert client_status is not None and client_status["degraded_mode"] is False
+        assert client_status is not None and client_status["polling_mode"] is False
 
-    def test_connection_status_in_health_summary(self):
+    def test_connection_status_in_health_summary(self) -> None:
         """Test connection status is included in health summary."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -549,11 +554,11 @@ class TestConnectionStatusTracking:
 
         summary = monitor.get_health_summary()
 
-        assert summary['connected'] is True
-        assert summary['uptime_seconds'] == 300.0
+        assert summary is not None and summary["connected"] is True
+        assert summary is not None and summary["uptime_seconds"] == 300.0
 
     @pytest.mark.asyncio
-    async def test_connection_health_status_impact(self):
+    async def test_connection_health_status_impact(self) -> None:
         """Test connection status impacts overall health."""
         from src.streaming.health_monitor import HealthMonitor, HealthStatus
 
@@ -564,10 +569,10 @@ class TestConnectionStatusTracking:
         client.is_degraded_mode = False
         client._circuit_breaker_state = "closed"
         client.get_error_metrics.return_value = {
-            'total_errors': 0,
-            'error_types': {},
-            'error_rate': 0.0,
-            'last_error_time': None
+            "total_errors": 0,
+            "error_types": {},
+            "error_rate": 0.0,
+            "last_error_time": None,
         }
 
         monitor = HealthMonitor(client)
@@ -585,7 +590,7 @@ class TestConnectionStatusTracking:
         await monitor._perform_health_check()
         assert monitor.current_status in [HealthStatus.DEGRADED, HealthStatus.UNHEALTHY]
 
-    def test_connection_issues_detection(self):
+    def test_connection_issues_detection(self) -> None:
         """Test detection of connection-related issues."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -615,7 +620,7 @@ class TestConnectionStatusTracking:
         assert "Degraded mode" in issues
 
     @pytest.mark.asyncio
-    async def test_status_change_on_connection_state(self):
+    async def test_status_change_on_connection_state(self) -> None:
         """Test health status changes when connection state changes."""
         from src.streaming.health_monitor import HealthMonitor, HealthStatus
 
@@ -625,10 +630,10 @@ class TestConnectionStatusTracking:
         client.is_degraded_mode = False
         client._circuit_breaker_state = "closed"
         client.get_error_metrics.return_value = {
-            'total_errors': 0,
-            'error_types': {},
-            'error_rate': 0.0,
-            'last_error_time': None
+            "total_errors": 0,
+            "error_types": {},
+            "error_rate": 0.0,
+            "last_error_time": None,
         }
 
         monitor = HealthMonitor(client)
@@ -656,7 +661,7 @@ class TestConnectionStatusTracking:
         assert "changed from" in last_change[2]  # Reason mentions change
 
     @pytest.mark.asyncio
-    async def test_connection_callback_registration(self):
+    async def test_connection_callback_registration(self) -> None:
         """Test registering callbacks for connection status changes."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -668,7 +673,7 @@ class TestConnectionStatusTracking:
         callback_called = False
         received_args = []
 
-        def status_callback(old_status, new_status):
+        def status_callback(old_status: Any, new_status: Any) -> None:
             nonlocal callback_called, received_args
             callback_called = True
             received_args = [old_status, new_status]
@@ -678,6 +683,7 @@ class TestConnectionStatusTracking:
 
         # Simulate status change
         from src.streaming.health_monitor import HealthStatus
+
         await monitor._notify_status_change(HealthStatus.HEALTHY, HealthStatus.DEGRADED)
 
         assert callback_called
@@ -689,7 +695,7 @@ class TestConnectionStatusTracking:
 class TestPerformanceMetrics:
     """Test performance metrics collection and reporting."""
 
-    def test_performance_metrics_initialization(self):
+    def test_performance_metrics_initialization(self) -> None:
         """Test performance metrics are properly initialized."""
         from src.streaming.health_monitor import HealthMonitor, PerformanceMetrics
 
@@ -705,7 +711,7 @@ class TestPerformanceMetrics:
         assert monitor.performance_metrics.queue_size == 0
 
     @pytest.mark.asyncio
-    async def test_performance_metrics_update_with_psutil(self):
+    async def test_performance_metrics_update_with_psutil(self) -> None:
         """Test performance metrics update when psutil is available."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -721,7 +727,7 @@ class TestPerformanceMetrics:
         assert monitor.performance_metrics.cpu_usage_percent == 25.5
 
     @pytest.mark.asyncio
-    async def test_performance_metrics_update_without_psutil(self):
+    async def test_performance_metrics_update_without_psutil(self) -> None:
         """Test performance metrics update when psutil is not available."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -737,7 +743,7 @@ class TestPerformanceMetrics:
         assert monitor.performance_metrics.cpu_usage_percent == 0.0
 
     @pytest.mark.asyncio
-    async def test_performance_metrics_error_handling(self):
+    async def test_performance_metrics_error_handling(self) -> None:
         """Test performance metrics handles errors gracefully."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -753,7 +759,7 @@ class TestPerformanceMetrics:
         assert isinstance(monitor.performance_metrics.memory_usage_mb, (int, float))
         assert isinstance(monitor.performance_metrics.cpu_usage_percent, (int, float))
 
-    def test_performance_metrics_in_health_report(self):
+    def test_performance_metrics_in_health_report(self) -> None:
         """Test performance metrics are included in health report."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -772,14 +778,14 @@ class TestPerformanceMetrics:
 
         report = monitor.get_health_report()
 
-        assert 'performance_metrics' in report
-        perf_metrics = report['performance_metrics']
-        assert perf_metrics['memory_usage_mb'] == 75.5
-        assert perf_metrics['cpu_usage_percent'] == 15.2
-        assert perf_metrics['network_latency_ms'] == 45.8
-        assert perf_metrics['queue_size'] == 25
+        assert "performance_metrics" in report
+        perf_metrics = report["performance_metrics"]
+        assert perf_metrics is not None and perf_metrics["memory_usage_mb"] == 75.5
+        assert perf_metrics is not None and perf_metrics["cpu_usage_percent"] == 15.2
+        assert perf_metrics is not None and perf_metrics["network_latency_ms"] == 45.8
+        assert perf_metrics is not None and perf_metrics["queue_size"] == 25
 
-    def test_performance_metrics_in_health_summary(self):
+    def test_performance_metrics_in_health_summary(self) -> None:
         """Test performance metrics are included in health summary."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -792,10 +798,10 @@ class TestPerformanceMetrics:
 
         summary = monitor.get_health_summary()
 
-        assert summary['memory_mb'] == 125.7
+        assert summary is not None and summary["memory_mb"] == 125.7
 
     @pytest.mark.asyncio
-    async def test_high_memory_usage_affects_health_status(self):
+    async def test_high_memory_usage_affects_health_status(self) -> None:
         """Test that high memory usage affects overall health status."""
         from src.streaming.health_monitor import HealthMonitor, HealthStatus
 
@@ -805,10 +811,10 @@ class TestPerformanceMetrics:
         client.is_degraded_mode = False
         client._circuit_breaker_state = "closed"
         client.get_error_metrics.return_value = {
-            'total_errors': 0,
-            'error_types': {},
-            'error_rate': 0.0,
-            'last_error_time': None
+            "total_errors": 0,
+            "error_types": {},
+            "error_rate": 0.0,
+            "last_error_time": None,
         }
 
         monitor = HealthMonitor(client)
@@ -826,7 +832,7 @@ class TestPerformanceMetrics:
         # Should be degraded due to high memory usage
         assert monitor.current_status in [HealthStatus.DEGRADED, HealthStatus.UNHEALTHY]
 
-    def test_performance_issues_detection(self):
+    def test_performance_issues_detection(self) -> None:
         """Test detection of performance-related issues."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -845,7 +851,7 @@ class TestPerformanceMetrics:
         assert len(high_memory_issues) > 0
         assert "250MB" in high_memory_issues[0]
 
-    def test_performance_thresholds_customization(self):
+    def test_performance_thresholds_customization(self) -> None:
         """Test that performance thresholds can be customized."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -853,10 +859,10 @@ class TestPerformanceMetrics:
         monitor = HealthMonitor(client)
 
         # Verify default threshold
-        assert monitor.thresholds['max_memory_usage_mb'] == 200.0
+        assert monitor.thresholds["max_memory_usage_mb"] == 200.0
 
         # Customize threshold
-        monitor.thresholds['max_memory_usage_mb'] = 150.0
+        monitor.thresholds["max_memory_usage_mb"] = 150.0
 
         # Set memory usage above new threshold
         monitor.performance_metrics.memory_usage_mb = 175.0
@@ -865,7 +871,7 @@ class TestPerformanceMetrics:
         memory_issues = [issue for issue in issues if "memory usage" in issue.lower()]
         assert len(memory_issues) > 0
 
-    def test_queue_size_tracking(self):
+    def test_queue_size_tracking(self) -> None:
         """Test queue size tracking functionality."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -877,14 +883,14 @@ class TestPerformanceMetrics:
         monitor.performance_metrics.processing_backlog = 100
 
         report = monitor.get_health_report()
-        perf_metrics = report['performance_metrics']
+        perf_metrics = report["performance_metrics"]
 
-        assert perf_metrics['queue_size'] == 500
+        assert perf_metrics is not None and perf_metrics["queue_size"] == 500
         # processing_backlog is part of PerformanceMetrics but not in get_health_report
         # This tests that we can set and track these values
         assert monitor.performance_metrics.processing_backlog == 100
 
-    def test_network_latency_tracking(self):
+    def test_network_latency_tracking(self) -> None:
         """Test network latency tracking functionality."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -895,12 +901,12 @@ class TestPerformanceMetrics:
         monitor.performance_metrics.network_latency_ms = 150.5
 
         report = monitor.get_health_report()
-        perf_metrics = report['performance_metrics']
+        perf_metrics = report["performance_metrics"]
 
-        assert perf_metrics['network_latency_ms'] == 150.5
+        assert perf_metrics is not None and perf_metrics["network_latency_ms"] == 150.5
 
     @pytest.mark.asyncio
-    async def test_performance_metrics_collection_during_health_check(self):
+    async def test_performance_metrics_collection_during_health_check(self) -> None:
         """Test that performance metrics are collected during health checks."""
         from src.streaming.health_monitor import HealthMonitor
 
@@ -910,22 +916,22 @@ class TestPerformanceMetrics:
         client.is_degraded_mode = False
         client._circuit_breaker_state = "closed"
         client.get_error_metrics.return_value = {
-            'total_errors': 0,
-            'error_types': {},
-            'error_rate': 0.0,
-            'last_error_time': None
+            "total_errors": 0,
+            "error_types": {},
+            "error_rate": 0.0,
+            "last_error_time": None,
         }
 
         monitor = HealthMonitor(client)
 
         # Mock performance update method
-        with patch.object(monitor, '_update_performance_metrics') as mock_update:
+        with patch.object(monitor, "_update_performance_metrics") as mock_update:
             await monitor._perform_health_check()
 
             # Verify performance metrics update was called
             mock_update.assert_called_once()
 
-    def test_performance_grade_calculation(self):
+    def test_performance_grade_calculation(self) -> None:
         """Test performance grade calculation in status reporter."""
         from src.streaming.status_reporter import ConnectionStatusReporter
 
@@ -936,25 +942,28 @@ class TestPerformanceMetrics:
         # Test different performance scenarios
 
         # Excellent performance (fast connections, no failures)
-        connection_stats = {'average': 2.0, 'count': 10}
+        connection_stats = {"average": 2.0, "count": 10}
         grade = reporter._calculate_performance_grade(connection_stats, 0)
-        assert grade == 'A'
+        assert grade == "A"
 
         # Good performance (moderate connections, few failures)
-        connection_stats = {'average': 8.0, 'count': 10}
+        connection_stats = {"average": 8.0, "count": 10}
         grade = reporter._calculate_performance_grade(connection_stats, 1)
-        assert grade == 'B'  # 1 failure results in 5 point deduction, putting it in B range
+        assert grade == "B"  # 1 failure results in 5 point deduction, putting it in B range
 
         # Slow connections
-        connection_stats = {'average': 35.0, 'count': 10}
+        connection_stats = {"average": 35.0, "count": 10}
         grade = reporter._calculate_performance_grade(connection_stats, 0)
-        assert grade in ['C', 'D']  # Should be degraded due to slow connections (35s > 30s = -30 points)
+        assert grade in [
+            "C",
+            "D",
+        ]  # Should be degraded due to slow connections (35s > 30s = -30 points)
 
         # Many failures
-        connection_stats = {'average': 5.0, 'count': 10}
+        connection_stats = {"average": 5.0, "count": 10}
         grade = reporter._calculate_performance_grade(connection_stats, 15)
-        assert grade in ['D', 'F']  # Should be poor due to many failures
+        assert grade in ["D", "F"]  # Should be poor due to many failures
 
         # No connection stats
         grade = reporter._calculate_performance_grade({}, 0)
-        assert grade == 'A'  # Default to good if no data
+        assert grade == "A"  # Default to good if no data

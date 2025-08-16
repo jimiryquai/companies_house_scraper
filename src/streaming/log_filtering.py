@@ -1,4 +1,5 @@
 """Log filtering and sampling functionality for streaming module.
+
 Provides configurable filtering and sampling to manage log volume and noise.
 """
 
@@ -9,7 +10,7 @@ from collections import deque
 from datetime import datetime, timedelta
 from enum import Enum
 from re import Pattern
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from .structured_logger import LogContext, LogEntry, LogLevel, StructuredLogger
 
@@ -61,12 +62,12 @@ class PatternFilter(LogFilter):
 
     def __init__(
         self,
-        include_patterns: Optional[List[str]] = None,
-        exclude_patterns: Optional[List[str]] = None,
+        include_patterns: Optional[list[str]] = None,
+        exclude_patterns: Optional[list[str]] = None,
     ):
         """Initialize pattern filter."""
-        self.include_patterns: List[Pattern[str]] = []
-        self.exclude_patterns: List[Pattern[str]] = []
+        self.include_patterns: list[Pattern[str]] = []
+        self.exclude_patterns: list[Pattern[str]] = []
 
         if include_patterns:
             self.include_patterns = [
@@ -92,11 +93,7 @@ class PatternFilter(LogFilter):
             return True
 
         # Check include patterns
-        for pattern in self.include_patterns:
-            if pattern.search(message):
-                return True
-
-        return False
+        return any(pattern.search(message) for pattern in self.include_patterns)
 
 
 class RateLimitFilter(LogFilter):
@@ -113,7 +110,7 @@ class RateLimitFilter(LogFilter):
         self.last_reset = datetime.now()
         self.blocked_count = 0
 
-    def should_log(self, log_entry: LogEntry) -> bool:
+    def should_log(self, log_entry: LogEntry) -> bool:  # noqa: ARG002
         """Check if log entry is within rate limits."""
         now = datetime.now()
 
@@ -123,12 +120,10 @@ class RateLimitFilter(LogFilter):
             self.burst_count = 0
             self.last_reset = now
 
-        # Check burst limit
-        if self.burst_count >= self.burst_size:
-            # Check rate limit
-            if self.current_count >= self.max_logs_per_minute:
-                self.blocked_count += 1
-                return False
+        # Check burst limit and rate limit together
+        if self.burst_count >= self.burst_size and self.current_count >= self.max_logs_per_minute:
+            self.blocked_count += 1
+            return False
 
         # Allow the log
         self.current_count += 1
@@ -146,8 +141,8 @@ class ContextFilter(LogFilter):
 
     def __init__(
         self,
-        required_context: Optional[Dict[str, Any]] = None,
-        excluded_context: Optional[Dict[str, Any]] = None,
+        required_context: Optional[dict[str, Any]] = None,
+        excluded_context: Optional[dict[str, Any]] = None,
     ):
         """Initialize context filter."""
         self.required_context = required_context or {}
@@ -163,11 +158,7 @@ class ContextFilter(LogFilter):
                 return False
 
         # Check required context
-        for key, value in self.required_context.items():
-            if context_dict.get(key) != value:
-                return False
-
-        return True
+        return all(context_dict.get(key) == value for key, value in self.required_context.items())
 
 
 class SamplingStrategy(Enum):
@@ -188,9 +179,9 @@ class RandomSampler(LogSampler):
 
         self.sample_rate = sample_rate
 
-    def should_sample(self, log_entry: LogEntry) -> bool:
+    def should_sample(self, log_entry: LogEntry) -> bool:  # noqa: ARG002
         """Randomly sample based on sample rate."""
-        return random.random() < self.sample_rate
+        return random.random() < self.sample_rate  # noqa: S311
 
 
 class TimeBasedSampler(LogSampler):
@@ -205,7 +196,7 @@ class TimeBasedSampler(LogSampler):
         self.current_interval_start = datetime.now()
         self.current_interval_count = 0
 
-    def should_sample(self, log_entry: LogEntry) -> bool:
+    def should_sample(self, log_entry: LogEntry) -> bool:  # noqa: ARG002
         """Sample based on time intervals."""
         now = datetime.now()
 
@@ -244,7 +235,7 @@ class VolumeBasedSampler(LogSampler):
         self.recent_logs: deque[datetime] = deque()
         self.recent_log_count = 0
 
-    def should_sample(self, log_entry: LogEntry) -> bool:
+    def should_sample(self, log_entry: LogEntry) -> bool:  # noqa: ARG002
         """Sample based on current log volume."""
         now = datetime.now()
         cutoff_time = now - timedelta(minutes=self.window_minutes)
@@ -269,7 +260,7 @@ class VolumeBasedSampler(LogSampler):
             volume_position = (self.recent_log_count - self.low_volume_threshold) / volume_range
             sample_rate = self.low_volume_rate - (rate_range * volume_position)
 
-        return random.random() < sample_rate
+        return random.random() < sample_rate  # noqa: S311
 
 
 class FilteredLogger:
@@ -278,8 +269,8 @@ class FilteredLogger:
     def __init__(self, base_logger: StructuredLogger):
         """Initialize filtered logger."""
         self.base_logger = base_logger
-        self.filters: List[LogFilter] = []
-        self.samplers: List[LogSampler] = []
+        self.filters: list[LogFilter] = []
+        self.samplers: list[LogSampler] = []
 
         # Statistics
         self.total_processed = 0
@@ -336,7 +327,7 @@ class FilteredLogger:
         level: LogLevel,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
         exception: Optional[Exception] = None,
     ) -> None:
         """Log a message through filters and samplers."""
@@ -358,7 +349,7 @@ class FilteredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
     ) -> None:
         """Log debug message with filtering."""
         await self.log(LogLevel.DEBUG, message, context, extra_data)
@@ -367,7 +358,7 @@ class FilteredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
     ) -> None:
         """Log info message with filtering."""
         await self.log(LogLevel.INFO, message, context, extra_data)
@@ -376,7 +367,7 @@ class FilteredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
     ) -> None:
         """Log warning message with filtering."""
         await self.log(LogLevel.WARNING, message, context, extra_data)
@@ -385,7 +376,7 @@ class FilteredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
         exception: Optional[Exception] = None,
     ) -> None:
         """Log error message with filtering."""
@@ -395,7 +386,7 @@ class FilteredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
         exception: Optional[Exception] = None,
     ) -> None:
         """Log critical message with filtering."""
@@ -405,13 +396,13 @@ class FilteredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None,
+        extra_data: Optional[dict[str, Any]] = None,
         exception: Optional[Exception] = None,
     ) -> None:
         """Log exception with filtering."""
         await self.log(LogLevel.ERROR, message, context, extra_data, exception)
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get filtering and sampling statistics."""
         return {
             "total_processed": self.total_processed,
@@ -434,7 +425,7 @@ class FilteredLogger:
 # Factory functions for common configurations
 
 
-def create_production_filters() -> List[LogFilter]:
+def create_production_filters() -> list[LogFilter]:
     """Create filters for production environment."""
     return [
         LevelFilter(min_level=LogLevel.INFO),  # No debug logs in production
@@ -448,7 +439,7 @@ def create_production_filters() -> List[LogFilter]:
     ]
 
 
-def create_development_filters() -> List[LogFilter]:
+def create_development_filters() -> list[LogFilter]:
     """Create filters for development environment."""
     return [
         LevelFilter(min_level=LogLevel.DEBUG),  # Allow all levels in dev
@@ -491,8 +482,8 @@ def setup_filtered_logger(
             filtered_logger.add_filter(filter_obj)
 
         # Light sampling for debug logs only
-        debug_filter = LevelFilter(min_level=LogLevel.DEBUG)
-        debug_sampler = create_debug_sampler()
+        # Debug filter and sampler available if needed
+        pass
 
     elif environment == "testing":
         # Testing configuration - minimal filtering

@@ -1,4 +1,4 @@
-"""Companies House Streaming API Integration Module
+"""Companies House Streaming API Integration Module.
 
 This module provides real-time monitoring of Companies House data streams
 to detect companies entering/exiting strike-off status and ensure zero

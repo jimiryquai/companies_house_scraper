@@ -9,7 +9,7 @@ import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import aiosqlite
 
@@ -45,10 +45,10 @@ class CompanyRecord:
     stream_status: str = "unknown"
     data_source: str = "bulk"
     last_stream_event_id: Optional[str] = None
-    stream_metadata: Optional[Dict[str, Any]] = None
+    stream_metadata: Optional[dict[str, Any]] = None
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CompanyRecord":
+    def from_dict(cls, data: dict[str, Any]) -> "CompanyRecord":
         """Create CompanyRecord from dictionary."""
         # Handle stream_metadata JSON
         metadata = data.get("stream_metadata")
@@ -83,7 +83,7 @@ class CompanyRecord:
             stream_metadata=metadata,
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert CompanyRecord to dictionary for database storage."""
         return {
             "company_number": self.company_number,
@@ -128,12 +128,12 @@ class StreamEventRecord:
     event_id: str
     event_type: str
     company_number: Optional[str]
-    event_data: Dict[str, Any]
+    event_data: dict[str, Any]
     processed_at: datetime
     id: Optional[int] = None
     created_at: Optional[datetime] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for database storage."""
         return {
             "event_id": self.event_id,
@@ -154,7 +154,7 @@ class DatabaseManager:
         """Initialize database manager."""
         self.db_path = config.database_path
         self.pool_size = 5
-        self._pool: List[aiosqlite.Connection] = []
+        self._pool: list[aiosqlite.Connection] = []
         self._is_initialized = False
 
     async def connect(self) -> None:
@@ -174,7 +174,7 @@ class DatabaseManager:
 
         except Exception as e:
             logger.error(f"Failed to initialize database pool: {e}")
-            raise DatabaseError(f"Database connection failed: {e}")
+            raise DatabaseError(f"Database connection failed: {e}") from e
 
     async def disconnect(self) -> None:
         """Close all database connections."""
@@ -222,27 +222,27 @@ class DatabaseManager:
                 logger.error(f"Transaction rolled back: {e}")
                 raise
 
-    async def execute(self, query: str, params: Tuple[Any, ...] = ()) -> Any:
+    async def execute(self, query: str, params: tuple[Any, ...] = ()) -> Any:
         """Execute a single query."""
         async with self.get_connection() as conn:
             cursor = await conn.execute(query, params)
             await conn.commit()
             return cursor
 
-    async def execute_many(self, query: str, params_list: List[Tuple[Any, ...]]) -> None:
+    async def execute_many(self, query: str, params_list: list[tuple[Any, ...]]) -> None:
         """Execute multiple queries with different parameters."""
         async with self.get_connection() as conn:
             await conn.executemany(query, params_list)
             await conn.commit()
 
-    async def fetch_one(self, query: str, params: Tuple[Any, ...] = ()) -> Optional[Dict[str, Any]]:
+    async def fetch_one(self, query: str, params: tuple[Any, ...] = ()) -> Optional[dict[str, Any]]:
         """Fetch a single row."""
         async with self.get_connection() as conn:
             cursor = await conn.execute(query, params)
             row = await cursor.fetchone()
             return dict(row) if row else None
 
-    async def fetch_all(self, query: str, params: Tuple[Any, ...] = ()) -> List[Dict[str, Any]]:
+    async def fetch_all(self, query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
         """Fetch all rows."""
         async with self.get_connection() as conn:
             cursor = await conn.execute(query, params)
@@ -269,7 +269,7 @@ class StreamingDatabase:
         """Disconnect from database."""
         await self.manager.disconnect()
 
-    async def upsert_company(self, company_data: Dict[str, Any]) -> None:
+    async def upsert_company(self, company_data: dict[str, Any]) -> None:
         """Insert or update a company record.
 
         Args:
@@ -288,7 +288,7 @@ class StreamingDatabase:
             values = [v for k, v in company_data.items() if k != "company_number"]
             values.append(company_number)
 
-            query = f"UPDATE companies SET {set_clause} WHERE company_number = ?"
+            query = f"UPDATE companies SET {set_clause} WHERE company_number = ?"  # noqa: S608
             await self.manager.execute(query, tuple(values))
 
             logger.debug(f"Updated company {company_number}")
@@ -298,12 +298,12 @@ class StreamingDatabase:
             placeholders = ", ".join("?" * len(columns))
             columns_str = ", ".join(columns)
 
-            query = f"INSERT INTO companies ({columns_str}) VALUES ({placeholders})"
+            query = f"INSERT INTO companies ({columns_str}) VALUES ({placeholders})"  # noqa: S608
             await self.manager.execute(query, tuple(company_data.values()))
 
             logger.debug(f"Inserted new company {company_number}")
 
-    async def batch_upsert_companies(self, companies: List[Dict[str, Any]]) -> None:
+    async def batch_upsert_companies(self, companies: list[dict[str, Any]]) -> None:
         """Batch insert or update multiple companies.
 
         Args:
@@ -312,7 +312,7 @@ class StreamingDatabase:
         for company in companies:
             await self.upsert_company(company)
 
-    async def get_company(self, company_number: str) -> Optional[Dict[str, Any]]:
+    async def get_company(self, company_number: str) -> Optional[dict[str, Any]]:
         """Get a company record by company number.
 
         Args:
@@ -324,7 +324,7 @@ class StreamingDatabase:
         query = "SELECT * FROM companies WHERE company_number = ?"
         return await self.manager.fetch_one(query, (company_number,))
 
-    async def get_companies_by_status(self, status: str) -> List[Dict[str, Any]]:
+    async def get_companies_by_status(self, status: str) -> list[dict[str, Any]]:
         """Get all companies with a specific status.
 
         Args:
@@ -336,7 +336,7 @@ class StreamingDatabase:
         query = "SELECT * FROM companies WHERE company_status = ?"
         return await self.manager.fetch_all(query, (status,))
 
-    async def update_stream_metadata(self, company_number: str, metadata: Dict[str, Any]) -> None:
+    async def update_stream_metadata(self, company_number: str, metadata: dict[str, Any]) -> None:
         """Update streaming metadata for a company.
 
         Args:
@@ -370,7 +370,7 @@ class StreamingDatabase:
         event_id: str,
         event_type: str,
         company_number: Optional[str],
-        event_data: Dict[str, Any],
+        event_data: dict[str, Any],
     ) -> Optional[int]:
         """Log a stream event to the database.
 
@@ -408,9 +408,9 @@ class StreamingDatabase:
             return None
         except Exception as e:
             logger.error(f"Failed to log stream event: {e}")
-            raise DatabaseError(f"Failed to log stream event: {e}")
+            raise DatabaseError(f"Failed to log stream event: {e}") from e
 
-    async def get_stream_event(self, event_id: str) -> Optional[Dict[str, Any]]:
+    async def get_stream_event(self, event_id: str) -> Optional[dict[str, Any]]:
         """Get a stream event by ID.
 
         Args:
@@ -422,7 +422,7 @@ class StreamingDatabase:
         query = "SELECT * FROM stream_events WHERE event_id = ?"
         return await self.manager.fetch_one(query, (event_id,))
 
-    async def get_stream_stats(self) -> Dict[str, Any]:
+    async def get_stream_stats(self) -> dict[str, Any]:
         """Get streaming statistics.
 
         Returns:
@@ -473,8 +473,8 @@ class StreamingDatabase:
         return self.manager.transaction()
 
     async def execute_query(
-        self, query: str, params: Tuple[Any, ...] = (), connection: Any = None
-    ) -> List[Dict[str, Any]]:
+        self, query: str, params: tuple[Any, ...] = (), connection: Any = None
+    ) -> list[dict[str, Any]]:
         """Execute a query, optionally within a specific connection/transaction."""
         if connection:
             cursor = await connection.execute(query, params)
@@ -484,7 +484,7 @@ class StreamingDatabase:
 
     async def upsert_company_with_conflict_resolution(
         self, company: CompanyRecord
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Upsert company with conflict resolution between bulk and stream data.
 
         Args:
@@ -534,7 +534,7 @@ class StreamingDatabase:
                 },
             }
 
-    def _resolve_data_conflict(self, existing: CompanyRecord, new: CompanyRecord) -> Dict[str, Any]:
+    def _resolve_data_conflict(self, existing: CompanyRecord, new: CompanyRecord) -> dict[str, Any]:
         """Resolve conflicts between existing and new company data.
 
         Args:
@@ -574,13 +574,17 @@ class StreamingDatabase:
             }
 
         # Rule 2: Don't overwrite recent stream data with bulk data
-        if new.data_source == "bulk" and existing.data_source == "stream":
-            if existing_time and (now - existing_time).total_seconds() < 3600:  # 1 hour threshold
-                return {
-                    "action": "skip",
-                    "strategy": "protect_recent_stream",
-                    "reason": "Recent stream data protected from bulk overwrite",
-                }
+        if (
+            new.data_source == "bulk"
+            and existing.data_source == "stream"
+            and existing_time
+            and (now - existing_time).total_seconds() < 3600  # 1 hour threshold
+        ):
+            return {
+                "action": "skip",
+                "strategy": "protect_recent_stream",
+                "reason": "Recent stream data protected from bulk overwrite",
+            }
 
         # Rule 3: Newer data wins (if both have timestamps)
         if existing_time and new_time:
@@ -603,7 +607,7 @@ class StreamingDatabase:
             "merged_fields": self._get_changed_fields(existing, merged),
         }
 
-    def _merge_company_records(
+    def _merge_company_records(  # noqa: C901
         self, existing: CompanyRecord, new: CompanyRecord, prefer_new: bool = False
     ) -> CompanyRecord:
         """Merge two company records intelligently.
@@ -675,7 +679,7 @@ class StreamingDatabase:
 
         return CompanyRecord.from_dict(merged_data)
 
-    def _get_changed_fields(self, existing: CompanyRecord, merged: CompanyRecord) -> List[str]:
+    def _get_changed_fields(self, existing: CompanyRecord, merged: CompanyRecord) -> list[str]:
         """Get list of fields that changed during merge."""
         changed = []
         existing_dict = existing.to_dict()
@@ -700,7 +704,7 @@ class StreamingDatabase:
         placeholders = ", ".join("?" * len(columns))
         columns_str = ", ".join(columns)
 
-        query = f"INSERT INTO companies ({columns_str}) VALUES ({placeholders})"
+        query = f"INSERT INTO companies ({columns_str}) VALUES ({placeholders})"  # noqa: S608
         await connection.execute(query, tuple(company_dict.values()))
 
     async def _update_company_record(self, company: CompanyRecord, connection: Any) -> None:
@@ -711,11 +715,11 @@ class StreamingDatabase:
         if isinstance(company_dict.get("stream_metadata"), dict):
             company_dict["stream_metadata"] = json.dumps(company_dict["stream_metadata"])
 
-        set_clause = ", ".join(f"{k} = ?" for k in company_dict.keys() if k != "company_number")
+        set_clause = ", ".join(f"{k} = ?" for k in company_dict if k != "company_number")
         values = [v for k, v in company_dict.items() if k != "company_number"]
         values.append(company.company_number)
 
-        query = f"UPDATE companies SET {set_clause} WHERE company_number = ?"
+        query = f"UPDATE companies SET {set_clause} WHERE company_number = ?"  # noqa: S608
         await connection.execute(query, tuple(values))
 
     async def upsert_company_with_validation(self, company: CompanyRecord) -> None:
@@ -733,7 +737,7 @@ class StreamingDatabase:
         # Proceed with upsert
         await self.upsert_company_with_conflict_resolution(company)
 
-    def _validate_company_record(self, company: CompanyRecord) -> None:
+    def _validate_company_record(self, company: CompanyRecord) -> None:  # noqa: C901
         """Validate a company record for data integrity.
 
         Args:
@@ -761,7 +765,9 @@ class StreamingDatabase:
             try:
                 datetime.strptime(company.incorporation_date, "%Y-%m-%d")
             except ValueError:
-                raise DatabaseError("Invalid date format: incorporation_date must be YYYY-MM-DD")
+                raise DatabaseError(
+                    "Invalid date format: incorporation_date must be YYYY-MM-DD"
+                ) from None
 
         # Validate SIC codes
         if company.sic_codes:
@@ -815,9 +821,9 @@ class StreamingDatabase:
                 elif isinstance(company.stream_metadata, str):
                     json.loads(company.stream_metadata)  # Test JSON parsing
             except (TypeError, json.JSONDecodeError):
-                raise DatabaseError("Invalid stream metadata: must be valid JSON")
+                raise DatabaseError("Invalid stream metadata: must be valid JSON") from None
 
-    async def get_consistency_metrics(self) -> Dict[str, Any]:
+    async def get_consistency_metrics(self) -> dict[str, Any]:
         """Get data consistency metrics."""
         # Count conflicts by type
         conflict_query = """
@@ -844,7 +850,7 @@ class StreamingDatabase:
             },
         }
 
-    async def get_data_quality_metrics(self) -> Dict[str, Any]:
+    async def get_data_quality_metrics(self) -> dict[str, Any]:
         """Get data quality metrics."""
         # Count total companies
         total_query = "SELECT COUNT(*) as total FROM companies"
@@ -881,7 +887,7 @@ class StreamingDatabase:
             "field_coverage": field_coverage,
         }
 
-    async def get_consistency_health_status(self) -> Dict[str, Any]:
+    async def get_consistency_health_status(self) -> dict[str, Any]:
         """Get overall data consistency health status."""
         metrics = await self.get_consistency_metrics()
         quality_metrics = await self.get_data_quality_metrics()

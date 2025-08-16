@@ -68,7 +68,7 @@ Edit `config.yaml` to set your Companies House API key:
 ```yaml
 api:
   key: YOUR_API_KEY_HERE
-  
+
 rate_limit:
   calls: 600
   period: 300  # 5 minutes

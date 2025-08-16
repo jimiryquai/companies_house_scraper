@@ -2,54 +2,40 @@
 Tests for log filtering and sampling functionality in streaming module.
 """
 
-import pytest
-import asyncio
-import json
-from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, AsyncMock
-from typing import Dict, Any, List
-import tempfile
 import os
-import random
+import tempfile
+from datetime import datetime, timedelta
+from typing import Any
+from unittest.mock import patch
 
+import pytest
+
+from src.streaming.config import StreamingConfig
 from src.streaming.log_filtering import (
-    LogFilter,
-    LogSampler,
-    RateLimitFilter,
+    FilteredLogger,
     LevelFilter,
     PatternFilter,
-    SamplingStrategy,
     RandomSampler,
+    RateLimitFilter,
     TimeBasedSampler,
     VolumeBasedSampler,
-    FilteredLogger,
-    FilteringError
 )
-from src.streaming.structured_logger import (
-    StructuredLogger,
-    LogLevel,
-    LogContext,
-    LogEntry
-)
-from src.streaming.config import StreamingConfig
+from src.streaming.structured_logger import LogContext, LogEntry, LogLevel, StructuredLogger
 
 
 @pytest.fixture
-def config():
+def config() -> Any:
     """Create test configuration."""
     return StreamingConfig(
-        streaming_api_key="test-api-key-123456",
-        database_path=":memory:",
-        batch_size=10
+        streaming_api_key="test-api-key-123456", database_path=":memory:", batch_size=10
     )
 
 
 @pytest.fixture
-def temp_log_file():
+def temp_log_file() -> Any:
     """Create a temporary log file for testing."""
-    temp_file = tempfile.NamedTemporaryFile(suffix=".log", delete=False)
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as temp_file:
+        temp_path = temp_file.name
 
     yield temp_path
 
@@ -59,7 +45,7 @@ def temp_log_file():
 
 
 @pytest.fixture
-def sample_log_entries():
+def sample_log_entries() -> Any:
     """Sample log entries for testing."""
     return [
         LogEntry(
@@ -67,68 +53,68 @@ def sample_log_entries():
             level=LogLevel.DEBUG,
             message="Debug message",
             context=LogContext(operation="debug_op"),
-            extra_data={"debug": True}
+            extra_data={"debug": True},
         ),
         LogEntry(
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="Info message",
             context=LogContext(operation="info_op"),
-            extra_data={"info": True}
+            extra_data={"info": True},
         ),
         LogEntry(
             timestamp=datetime.now(),
             level=LogLevel.WARNING,
             message="Warning message",
             context=LogContext(operation="warning_op"),
-            extra_data={"warning": True}
+            extra_data={"warning": True},
         ),
         LogEntry(
             timestamp=datetime.now(),
             level=LogLevel.ERROR,
             message="Error message",
             context=LogContext(operation="error_op"),
-            extra_data={"error": True}
+            extra_data={"error": True},
         ),
         LogEntry(
             timestamp=datetime.now(),
             level=LogLevel.CRITICAL,
             message="Critical message",
             context=LogContext(operation="critical_op"),
-            extra_data={"critical": True}
-        )
+            extra_data={"critical": True},
+        ),
     ]
 
 
 class TestLevelFilter:
     """Test LevelFilter functionality."""
 
-    def test_level_filter_creation(self):
+    def test_level_filter_creation(self) -> None:
         """Test LevelFilter creation."""
         filter_obj = LevelFilter(min_level=LogLevel.WARNING)
 
         assert filter_obj.min_level == LogLevel.WARNING
 
-    def test_level_filter_accepts_above_threshold(self, sample_log_entries):
+    def test_level_filter_accepts_above_threshold(self, sample_log_entries: Any) -> None:
         """Test level filter accepts logs above threshold."""
         filter_obj = LevelFilter(min_level=LogLevel.WARNING)
 
         # Should accept WARNING, ERROR, CRITICAL
         warning_entry = sample_log_entries[2]  # WARNING
-        error_entry = sample_log_entries[3]    # ERROR
-        critical_entry = sample_log_entries[4] # CRITICAL
+        error_entry = sample_log_entries[3]  # ERROR
+        critical_entry = sample_log_entries[4]  # CRITICAL
 
         assert filter_obj.should_log(warning_entry) is True
         assert filter_obj.should_log(error_entry) is True
         assert filter_obj.should_log(critical_entry) is True
 
-    def test_level_filter_rejects_below_threshold(self, sample_log_entries):
+    def test_level_filter_rejects_below_threshold(self, sample_log_entries: Any) -> None:
         """Test level filter rejects logs below threshold."""
         filter_obj = LevelFilter(min_level=LogLevel.WARNING)
 
         # Should reject DEBUG, INFO
         debug_entry = sample_log_entries[0]  # DEBUG
-        info_entry = sample_log_entries[1]   # INFO
+        info_entry = sample_log_entries[1]  # INFO
 
         assert filter_obj.should_log(debug_entry) is False
         assert filter_obj.should_log(info_entry) is False
@@ -137,17 +123,16 @@ class TestLevelFilter:
 class TestPatternFilter:
     """Test PatternFilter functionality."""
 
-    def test_pattern_filter_creation(self):
+    def test_pattern_filter_creation(self) -> None:
         """Test PatternFilter creation."""
         filter_obj = PatternFilter(
-            include_patterns=[r".*important.*"],
-            exclude_patterns=[r".*debug.*"]
+            include_patterns=[r".*important.*"], exclude_patterns=[r".*debug.*"]
         )
 
         assert len(filter_obj.include_patterns) == 1
         assert len(filter_obj.exclude_patterns) == 1
 
-    def test_pattern_filter_include_match(self):
+    def test_pattern_filter_include_match(self) -> None:
         """Test pattern filter with include patterns."""
         filter_obj = PatternFilter(include_patterns=[r".*important.*"])
 
@@ -155,20 +140,20 @@ class TestPatternFilter:
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="This is an important message",
-            context=LogContext()
+            context=LogContext(),
         )
 
         non_matching_entry = LogEntry(
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="This is a regular message",
-            context=LogContext()
+            context=LogContext(),
         )
 
         assert filter_obj.should_log(matching_entry) is True
         assert filter_obj.should_log(non_matching_entry) is False
 
-    def test_pattern_filter_exclude_match(self):
+    def test_pattern_filter_exclude_match(self) -> None:
         """Test pattern filter with exclude patterns."""
         filter_obj = PatternFilter(exclude_patterns=[r".*debug.*"])
 
@@ -176,32 +161,29 @@ class TestPatternFilter:
             timestamp=datetime.now(),
             level=LogLevel.DEBUG,
             message="This is a debug message",
-            context=LogContext()
+            context=LogContext(),
         )
 
         included_entry = LogEntry(
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="This is an info message",
-            context=LogContext()
+            context=LogContext(),
         )
 
         assert filter_obj.should_log(excluded_entry) is False
         assert filter_obj.should_log(included_entry) is True
 
-    def test_pattern_filter_include_and_exclude(self):
+    def test_pattern_filter_include_and_exclude(self) -> None:
         """Test pattern filter with both include and exclude patterns."""
-        filter_obj = PatternFilter(
-            include_patterns=[r".*api.*"],
-            exclude_patterns=[r".*debug.*"]
-        )
+        filter_obj = PatternFilter(include_patterns=[r".*api.*"], exclude_patterns=[r".*debug.*"])
 
         # Should be included (matches api pattern, doesn't match debug)
         api_entry = LogEntry(
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="API call successful",
-            context=LogContext()
+            context=LogContext(),
         )
 
         # Should be excluded (matches api pattern but also matches debug)
@@ -209,7 +191,7 @@ class TestPatternFilter:
             timestamp=datetime.now(),
             level=LogLevel.DEBUG,
             message="API debug information",
-            context=LogContext()
+            context=LogContext(),
         )
 
         # Should be excluded (doesn't match api pattern)
@@ -217,7 +199,7 @@ class TestPatternFilter:
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="Other message",
-            context=LogContext()
+            context=LogContext(),
         )
 
         assert filter_obj.should_log(api_entry) is True
@@ -229,22 +211,19 @@ class TestRateLimitFilter:
     """Test RateLimitFilter functionality."""
 
     @pytest.mark.asyncio
-    async def test_rate_limit_filter_creation(self):
+    async def test_rate_limit_filter_creation(self) -> None:
         """Test RateLimitFilter creation."""
-        filter_obj = RateLimitFilter(
-            max_logs_per_minute=60,
-            burst_size=10
-        )
+        filter_obj = RateLimitFilter(max_logs_per_minute=60, burst_size=10)
 
         assert filter_obj.max_logs_per_minute == 60
         assert filter_obj.burst_size == 10
 
     @pytest.mark.asyncio
-    async def test_rate_limit_filter_allows_under_limit(self, sample_log_entries):
+    async def test_rate_limit_filter_allows_under_limit(self, sample_log_entries: Any) -> None:
         """Test rate limit filter allows logs under limit."""
         filter_obj = RateLimitFilter(
             max_logs_per_minute=100,  # High limit
-            burst_size=20
+            burst_size=20,
         )
 
         # Should allow multiple entries
@@ -252,18 +231,18 @@ class TestRateLimitFilter:
             assert filter_obj.should_log(entry) is True
 
     @pytest.mark.asyncio
-    async def test_rate_limit_filter_blocks_over_limit(self):
+    async def test_rate_limit_filter_blocks_over_limit(self) -> None:
         """Test rate limit filter blocks logs over limit."""
         filter_obj = RateLimitFilter(
             max_logs_per_minute=2,  # Very low limit
-            burst_size=1
+            burst_size=1,
         )
 
         entry = LogEntry(
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="Test message",
-            context=LogContext()
+            context=LogContext(),
         )
 
         # First few should be allowed
@@ -271,25 +250,22 @@ class TestRateLimitFilter:
 
         # Subsequent ones should be blocked
         for _ in range(10):
-            result = filter_obj.should_log(entry)
+            filter_obj.should_log(entry)
             # Some may be blocked due to rate limiting
 
         # Check that some were blocked
         assert filter_obj.blocked_count > 0
 
     @pytest.mark.asyncio
-    async def test_rate_limit_filter_resets_over_time(self):
+    async def test_rate_limit_filter_resets_over_time(self) -> None:
         """Test rate limit filter resets over time."""
-        filter_obj = RateLimitFilter(
-            max_logs_per_minute=1,
-            burst_size=1
-        )
+        filter_obj = RateLimitFilter(max_logs_per_minute=1, burst_size=1)
 
         entry = LogEntry(
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="Test message",
-            context=LogContext()
+            context=LogContext(),
         )
 
         # Use up the limit
@@ -307,13 +283,13 @@ class TestRateLimitFilter:
 class TestRandomSampler:
     """Test RandomSampler functionality."""
 
-    def test_random_sampler_creation(self):
+    def test_random_sampler_creation(self) -> None:
         """Test RandomSampler creation."""
         sampler = RandomSampler(sample_rate=0.5)
 
         assert sampler.sample_rate == 0.5
 
-    def test_random_sampler_rate_zero(self):
+    def test_random_sampler_rate_zero(self) -> None:
         """Test RandomSampler with 0% sample rate."""
         sampler = RandomSampler(sample_rate=0.0)
 
@@ -321,14 +297,14 @@ class TestRandomSampler:
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="Test message",
-            context=LogContext()
+            context=LogContext(),
         )
 
         # Should never sample
         for _ in range(100):
             assert sampler.should_sample(entry) is False
 
-    def test_random_sampler_rate_one(self):
+    def test_random_sampler_rate_one(self) -> None:
         """Test RandomSampler with 100% sample rate."""
         sampler = RandomSampler(sample_rate=1.0)
 
@@ -336,15 +312,15 @@ class TestRandomSampler:
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="Test message",
-            context=LogContext()
+            context=LogContext(),
         )
 
         # Should always sample
         for _ in range(100):
             assert sampler.should_sample(entry) is True
 
-    @patch('random.random')
-    def test_random_sampler_deterministic(self, mock_random):
+    @patch("random.random")
+    def test_random_sampler_deterministic(self, mock_random: Any) -> None:
         """Test RandomSampler with deterministic random values."""
         sampler = RandomSampler(sample_rate=0.5)
 
@@ -352,7 +328,7 @@ class TestRandomSampler:
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="Test message",
-            context=LogContext()
+            context=LogContext(),
         )
 
         # Mock random to return 0.3 (< 0.5, should sample)
@@ -367,46 +343,43 @@ class TestRandomSampler:
 class TestTimeBasedSampler:
     """Test TimeBasedSampler functionality."""
 
-    def test_time_based_sampler_creation(self):
+    def test_time_based_sampler_creation(self) -> None:
         """Test TimeBasedSampler creation."""
-        sampler = TimeBasedSampler(
-            interval_seconds=60,
-            max_per_interval=10
-        )
+        sampler = TimeBasedSampler(interval_seconds=60, max_per_interval=10)
 
         assert sampler.interval_seconds == 60
         assert sampler.max_per_interval == 10
 
-    def test_time_based_sampler_under_limit(self):
+    def test_time_based_sampler_under_limit(self) -> None:
         """Test TimeBasedSampler when under limit."""
         sampler = TimeBasedSampler(
             interval_seconds=60,
-            max_per_interval=100  # High limit
+            max_per_interval=100,  # High limit
         )
 
         entry = LogEntry(
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="Test message",
-            context=LogContext()
+            context=LogContext(),
         )
 
         # Should sample multiple entries
         for _ in range(10):
             assert sampler.should_sample(entry) is True
 
-    def test_time_based_sampler_over_limit(self):
+    def test_time_based_sampler_over_limit(self) -> None:
         """Test TimeBasedSampler when over limit."""
         sampler = TimeBasedSampler(
             interval_seconds=60,
-            max_per_interval=2  # Low limit
+            max_per_interval=2,  # Low limit
         )
 
         entry = LogEntry(
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="Test message",
-            context=LogContext()
+            context=LogContext(),
         )
 
         # First 2 should be sampled
@@ -421,13 +394,13 @@ class TestTimeBasedSampler:
 class TestVolumeBasedSampler:
     """Test VolumeBasedSampler functionality."""
 
-    def test_volume_based_sampler_creation(self):
+    def test_volume_based_sampler_creation(self) -> None:
         """Test VolumeBasedSampler creation."""
         sampler = VolumeBasedSampler(
             low_volume_threshold=10,
             high_volume_threshold=100,
             low_volume_rate=1.0,
-            high_volume_rate=0.1
+            high_volume_rate=0.1,
         )
 
         assert sampler.low_volume_threshold == 10
@@ -435,21 +408,21 @@ class TestVolumeBasedSampler:
         assert sampler.low_volume_rate == 1.0
         assert sampler.high_volume_rate == 0.1
 
-    @patch('random.random')
-    def test_volume_based_sampler_low_volume(self, mock_random):
+    @patch("random.random")
+    def test_volume_based_sampler_low_volume(self, mock_random: Any) -> None:
         """Test VolumeBasedSampler during low volume."""
         sampler = VolumeBasedSampler(
             low_volume_threshold=10,
             high_volume_threshold=100,
             low_volume_rate=1.0,
-            high_volume_rate=0.1
+            high_volume_rate=0.1,
         )
 
         entry = LogEntry(
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="Test message",
-            context=LogContext()
+            context=LogContext(),
         )
 
         # Simulate low volume (5 recent logs)
@@ -459,21 +432,21 @@ class TestVolumeBasedSampler:
         mock_random.return_value = 0.5
         assert sampler.should_sample(entry) is True
 
-    @patch('random.random')
-    def test_volume_based_sampler_high_volume(self, mock_random):
+    @patch("random.random")
+    def test_volume_based_sampler_high_volume(self, mock_random: Any) -> None:
         """Test VolumeBasedSampler during high volume."""
         sampler = VolumeBasedSampler(
             low_volume_threshold=10,
             high_volume_threshold=100,
             low_volume_rate=1.0,
-            high_volume_rate=0.1
+            high_volume_rate=0.1,
         )
 
         entry = LogEntry(
             timestamp=datetime.now(),
             level=LogLevel.INFO,
             message="Test message",
-            context=LogContext()
+            context=LogContext(),
         )
 
         # Simulate high volume by adding many entries to recent_logs
@@ -485,7 +458,7 @@ class TestVolumeBasedSampler:
         mock_random.return_value = 0.05  # < 0.1, should sample
         assert sampler.should_sample(entry) is True
 
-        mock_random.return_value = 0.2   # > 0.1, should not sample
+        mock_random.return_value = 0.2  # > 0.1, should not sample
         assert sampler.should_sample(entry) is False
 
 
@@ -493,12 +466,10 @@ class TestFilteredLogger:
     """Test FilteredLogger functionality."""
 
     @pytest.mark.asyncio
-    async def test_filtered_logger_creation(self, config, temp_log_file):
+    async def test_filtered_logger_creation(self, config: Any, temp_log_file: Any) -> None:
         """Test FilteredLogger creation."""
         base_logger = StructuredLogger(
-            config=config,
-            log_file=temp_log_file,
-            log_level=LogLevel.DEBUG
+            config=config, log_file=temp_log_file, log_level=LogLevel.DEBUG
         )
 
         filtered_logger = FilteredLogger(base_logger=base_logger)
@@ -508,12 +479,10 @@ class TestFilteredLogger:
         assert len(filtered_logger.samplers) == 0
 
     @pytest.mark.asyncio
-    async def test_filtered_logger_add_filter(self, config, temp_log_file):
+    async def test_filtered_logger_add_filter(self, config: Any, temp_log_file: Any) -> None:
         """Test adding filters to FilteredLogger."""
         base_logger = StructuredLogger(
-            config=config,
-            log_file=temp_log_file,
-            log_level=LogLevel.DEBUG
+            config=config, log_file=temp_log_file, log_level=LogLevel.DEBUG
         )
 
         filtered_logger = FilteredLogger(base_logger=base_logger)
@@ -525,12 +494,10 @@ class TestFilteredLogger:
         assert filtered_logger.filters[0] == level_filter
 
     @pytest.mark.asyncio
-    async def test_filtered_logger_add_sampler(self, config, temp_log_file):
+    async def test_filtered_logger_add_sampler(self, config: Any, temp_log_file: Any) -> None:
         """Test adding samplers to FilteredLogger."""
         base_logger = StructuredLogger(
-            config=config,
-            log_file=temp_log_file,
-            log_level=LogLevel.DEBUG
+            config=config, log_file=temp_log_file, log_level=LogLevel.DEBUG
         )
 
         filtered_logger = FilteredLogger(base_logger=base_logger)
@@ -542,12 +509,10 @@ class TestFilteredLogger:
         assert filtered_logger.samplers[0] == random_sampler
 
     @pytest.mark.asyncio
-    async def test_filtered_logger_filtering(self, config, temp_log_file):
+    async def test_filtered_logger_filtering(self, config: Any, temp_log_file: Any) -> None:
         """Test that FilteredLogger applies filters correctly."""
         base_logger = StructuredLogger(
-            config=config,
-            log_file=temp_log_file,
-            log_level=LogLevel.DEBUG
+            config=config, log_file=temp_log_file, log_level=LogLevel.DEBUG
         )
         await base_logger.start()
 
@@ -564,16 +529,16 @@ class TestFilteredLogger:
         await filtered_logger.start()
 
         # Try to log at different levels
-        await filtered_logger.debug("Debug message")      # Should be filtered out
-        await filtered_logger.info("Info message")        # Should be filtered out
+        await filtered_logger.debug("Debug message")  # Should be filtered out
+        await filtered_logger.info("Info message")  # Should be filtered out
         await filtered_logger.warning("Warning message")  # Should pass through
-        await filtered_logger.error("Error message")      # Should pass through
+        await filtered_logger.error("Error message")  # Should pass through
 
         await filtered_logger.stop()
         await base_logger.stop()
 
         # Check log file
-        with open(temp_log_file, 'r') as f:
+        with open(temp_log_file) as f:
             content = f.read()
             assert "Debug message" not in content
             assert "Info message" not in content
@@ -581,12 +546,10 @@ class TestFilteredLogger:
             assert "Error message" in content
 
     @pytest.mark.asyncio
-    async def test_filtered_logger_sampling(self, config, temp_log_file):
+    async def test_filtered_logger_sampling(self, config: Any, temp_log_file: Any) -> None:
         """Test that FilteredLogger applies sampling correctly."""
         base_logger = StructuredLogger(
-            config=config,
-            log_file=temp_log_file,
-            log_level=LogLevel.DEBUG
+            config=config, log_file=temp_log_file, log_level=LogLevel.DEBUG
         )
         await base_logger.start()
 
@@ -606,17 +569,15 @@ class TestFilteredLogger:
         await base_logger.stop()
 
         # Check that no messages were logged due to sampling
-        with open(temp_log_file, 'r') as f:
+        with open(temp_log_file) as f:
             content = f.read()
             assert "Message" not in content
 
     @pytest.mark.asyncio
-    async def test_filtered_logger_statistics(self, config, temp_log_file):
+    async def test_filtered_logger_statistics(self, config: Any, temp_log_file: Any) -> None:
         """Test FilteredLogger statistics collection."""
         base_logger = StructuredLogger(
-            config=config,
-            log_file=temp_log_file,
-            log_level=LogLevel.DEBUG
+            config=config, log_file=temp_log_file, log_level=LogLevel.DEBUG
         )
         await base_logger.start()
 
@@ -635,14 +596,14 @@ class TestFilteredLogger:
         # Generate various log entries
         for _ in range(10):
             await filtered_logger.debug("Debug message")  # Will be filtered
-            await filtered_logger.info("Info message")    # May be sampled
+            await filtered_logger.info("Info message")  # May be sampled
 
         stats = filtered_logger.get_statistics()
 
-        assert stats["total_processed"] == 20
+        assert stats is not None and stats["total_processed"] == 20
         assert stats["filtered_out"] >= 10  # At least debug messages
-        assert stats["sampled_out"] >= 0    # Some may be sampled out
-        assert stats["logged"] >= 0        # Some may get through
+        assert stats["sampled_out"] >= 0  # Some may be sampled out
+        assert stats["logged"] >= 0  # Some may get through
 
         await filtered_logger.stop()
         await base_logger.stop()
@@ -652,12 +613,10 @@ class TestIntegration:
     """Test integration scenarios."""
 
     @pytest.mark.asyncio
-    async def test_complex_filtering_and_sampling(self, config, temp_log_file):
+    async def test_complex_filtering_and_sampling(self, config: Any, temp_log_file: Any) -> None:
         """Test complex scenario with multiple filters and samplers."""
         base_logger = StructuredLogger(
-            config=config,
-            log_file=temp_log_file,
-            log_level=LogLevel.DEBUG
+            config=config, log_file=temp_log_file, log_level=LogLevel.DEBUG
         )
         await base_logger.start()
 
@@ -680,10 +639,10 @@ class TestIntegration:
 
         # Generate test logs
         test_messages = [
-            ("DEBUG", "Debug message"),              # Filtered by level
-            ("INFO", "Regular info message"),       # Filtered by pattern
-            ("INFO", "Important info message"),     # Should pass filters
-            ("WARNING", "Important warning"),       # Should pass filters
+            ("DEBUG", "Debug message"),  # Filtered by level
+            ("INFO", "Regular info message"),  # Filtered by pattern
+            ("INFO", "Important info message"),  # Should pass filters
+            ("WARNING", "Important warning"),  # Should pass filters
             ("ERROR", "Important error occurred"),  # Should pass filters
         ]
 
@@ -701,26 +660,24 @@ class TestIntegration:
         stats = filtered_logger.get_statistics()
 
         # Verify that filtering and sampling occurred
-        assert stats["total_processed"] == 5
+        assert stats is not None and stats["total_processed"] == 5
         assert stats["filtered_out"] >= 2  # At least debug + non-important info
 
         await filtered_logger.stop()
         await base_logger.stop()
 
         # Verify that only important messages made it through
-        with open(temp_log_file, 'r') as f:
+        with open(temp_log_file) as f:
             content = f.read()
             assert "Debug message" not in content
             assert "Regular info message" not in content
             # Important messages may or may not be there due to sampling
 
     @pytest.mark.asyncio
-    async def test_high_volume_scenario(self, config, temp_log_file):
+    async def test_high_volume_scenario(self, config: Any, temp_log_file: Any) -> None:
         """Test filtering and sampling under high volume."""
         base_logger = StructuredLogger(
-            config=config,
-            log_file=temp_log_file,
-            log_level=LogLevel.DEBUG
+            config=config, log_file=temp_log_file, log_level=LogLevel.DEBUG
         )
         await base_logger.start()
 
@@ -731,7 +688,7 @@ class TestIntegration:
             low_volume_threshold=10,
             high_volume_threshold=50,
             low_volume_rate=1.0,
-            high_volume_rate=0.1
+            high_volume_rate=0.1,
         )
         filtered_logger.add_sampler(volume_sampler)
 
@@ -744,7 +701,7 @@ class TestIntegration:
         stats = filtered_logger.get_statistics()
 
         # Should have processed all messages
-        assert stats["total_processed"] == 100
+        assert stats is not None and stats["total_processed"] == 100
 
         # Should have sampled out many due to high volume
         assert stats["sampled_out"] > 50
