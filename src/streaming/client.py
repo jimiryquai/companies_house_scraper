@@ -1,5 +1,4 @@
-"""
-Companies House Streaming API Client
+"""Companies House Streaming API Client
 
 Handles real-time connections to the Companies House Streaming API to monitor
 company status changes and detect companies entering/exiting strike-off status.
@@ -9,111 +8,108 @@ import asyncio
 import json
 import logging
 import random
-import time
+from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, Callable, AsyncGenerator
+from typing import Any, Callable, Dict, Optional
 from urllib.parse import urljoin
 
 import aiohttp
-from aiohttp import ClientSession, ClientTimeout, ClientError, ClientConnectorError
-from aiohttp.client_exceptions import ServerTimeoutError, ClientResponseError
+from aiohttp import ClientConnectorError, ClientError, ClientSession, ClientTimeout
+from aiohttp.client_exceptions import ClientResponseError, ServerTimeoutError
 
 from .config import StreamingConfig
-
 
 logger = logging.getLogger(__name__)
 
 
 class StreamingClient:
-    """
-    Companies House Streaming API client for real-time data monitoring.
-    
+    """Companies House Streaming API client for real-time data monitoring.
+
     This client connects to the Companies House Streaming API to receive
     real-time updates about company data changes, with focus on detecting
     companies entering or exiting "Active - Proposal to Strike Off" status.
     """
-    
+
     def __init__(self, config: StreamingConfig):
         """Initialize the streaming client."""
         self.config = config
         self.session: Optional[ClientSession] = None
         self.is_connected = False
-        self.last_heartbeat = None
+        self.last_heartbeat: Optional[datetime] = None
         self._shutdown_event = asyncio.Event()
-        
+
         # Connection management
         self._connection_attempts = 0
         self._last_request_time: Optional[datetime] = None
         self._request_count_window: Dict[datetime, int] = {}
-        
+
         # Circuit breaker state
         self._circuit_breaker_state = "closed"  # closed, open, half_open
         self._failure_count = 0
         self._success_count = 0
         self._last_failure_time: Optional[datetime] = None
         self._circuit_breaker_timeout = 60  # seconds
-        
+
         # Error tracking
         self._error_count = 0
         self._error_types: Dict[str, int] = {}
         self._last_error_time: Optional[datetime] = None
-        
+
         # Degraded mode
         self.is_degraded_mode = False
         self.is_polling_mode = False
         self.polling_interval = 30  # seconds
-        
+
         # Setup logging
         self._setup_logging()
-        
+
         # Event handlers
-        self.event_handlers: Dict[str, Callable] = {}
-        
+        self.event_handlers: Dict[str, Callable[..., Any]] = {}
+
     def _setup_logging(self) -> None:
         """Configure logging for the streaming client."""
         log_level = getattr(logging, self.config.log_level.upper())
         logger.setLevel(log_level)
-        
+
         if self.config.log_file:
             handler = logging.FileHandler(self.config.log_file)
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
+            formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
             handler.setFormatter(formatter)
             logger.addHandler(handler)
-    
-    async def __aenter__(self):
+
+    async def __aenter__(self) -> "StreamingClient":
         """Async context manager entry."""
         await self.connect()
         return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Async context manager exit."""
         await self.disconnect()
-    
+
     async def _wait_for_rate_limit(self) -> None:
         """Wait if necessary to comply with rate limits."""
         now = datetime.now()
-        
+
         # Clean old entries from the request window (older than 1 minute)
         cutoff_time = now - timedelta(minutes=1)
         self._request_count_window = {
-            timestamp: count for timestamp, count in self._request_count_window.items()
+            timestamp: count
+            for timestamp, count in self._request_count_window.items()
             if timestamp > cutoff_time
         }
-        
+
         # Count requests in the current window
         current_requests = sum(self._request_count_window.values())
-        
+
         if current_requests >= self.config.rate_limit_requests_per_minute:
             # Find the oldest request and wait until the window allows a new request
             oldest_request = min(self._request_count_window.keys())
             wait_time = (oldest_request + timedelta(minutes=1) - now).total_seconds()
-            
+
             if wait_time > 0:
                 logger.info(f"Rate limit reached. Waiting {wait_time:.2f} seconds")
                 await asyncio.sleep(wait_time)
-        
+
         # Record this request
         minute_mark = now.replace(second=0, microsecond=0)
         self._request_count_window[minute_mark] = self._request_count_window.get(minute_mark, 0) + 1
@@ -123,8 +119,9 @@ class StreamingClient:
         """Check circuit breaker state and raise exception if open."""
         if self._circuit_breaker_state == "open":
             # Check if timeout has passed to move to half-open
-            if (self._last_failure_time and 
-                datetime.now() - self._last_failure_time > timedelta(seconds=self._circuit_breaker_timeout)):
+            if self._last_failure_time and datetime.now() - self._last_failure_time > timedelta(
+                seconds=self._circuit_breaker_timeout
+            ):
                 self._circuit_breaker_state = "half_open"
                 logger.info("Circuit breaker moved to half-open state")
             else:
@@ -145,11 +142,11 @@ class StreamingClient:
         self._error_count += 1
         self._last_failure_time = datetime.now()
         self._last_error_time = datetime.now()
-        
+
         # Track error types
         error_type = type(error).__name__
         self._error_types[error_type] = self._error_types.get(error_type, 0) + 1
-        
+
         # Open circuit breaker if failure threshold exceeded
         if self._failure_count >= self.config.max_retries:
             self._circuit_breaker_state = "open"
@@ -159,29 +156,25 @@ class StreamingClient:
         """Establish connection to the streaming API."""
         # Check circuit breaker before attempting connection
         self._check_circuit_breaker()
-        
+
         await self._wait_for_rate_limit()
-        
+
         if self.session is None or self.session.closed:
             timeout = ClientTimeout(total=self.config.connection_timeout)
-            connector = aiohttp.TCPConnector(
-                limit=10,
-                limit_per_host=5,
-                keepalive_timeout=30
-            )
-            
+            connector = aiohttp.TCPConnector(limit=10, limit_per_host=5, keepalive_timeout=30)
+
             self.session = ClientSession(
                 timeout=timeout,
                 connector=connector,
                 headers={
-                    'Authorization': f'Bearer {self.config.streaming_api_key}',
-                    'Accept': 'application/json',
-                    'User-Agent': 'Companies-House-Scraper/1.0'
-                }
+                    "Authorization": f"Bearer {self.config.streaming_api_key}",
+                    "Accept": "application/json",
+                    "User-Agent": "Companies-House-Scraper/1.0",
+                },
             )
-            
+
         logger.info("Connecting to Companies House Streaming API...")
-        
+
         # Test connection with health check
         try:
             await self._health_check()
@@ -195,25 +188,25 @@ class StreamingClient:
             logger.error(f"Failed to connect to streaming API: {e}")
             await self.disconnect()
             raise
-    
+
     async def disconnect(self) -> None:
         """Close the streaming connection."""
         self.is_connected = False
         self._shutdown_event.set()
-        
+
         if self.session:
             await self.session.close()
             self.session = None
-            
+
         logger.info("Disconnected from streaming API")
-    
+
     async def _health_check(self) -> None:
         """Perform health check against the streaming API."""
         if not self.session:
             raise RuntimeError("Session not initialized")
-            
-        url = urljoin(self.config.api_base_url, '/healthcheck')
-        
+
+        url = urljoin(self.config.api_base_url, "/healthcheck")
+
         try:
             await self._wait_for_rate_limit()
             async with self.session.get(url) as response:
@@ -221,7 +214,7 @@ class StreamingClient:
                     logger.debug("Health check passed")
                 elif response.status == 429:
                     # Rate limit exceeded
-                    retry_after = response.headers.get('Retry-After', '60')
+                    retry_after = response.headers.get("Retry-After", "60")
                     logger.warning(f"Rate limit exceeded. Retry after {retry_after} seconds")
                     raise ClientError(f"Health check failed with status {response.status}")
                 elif response.status in [401, 403]:
@@ -236,113 +229,115 @@ class StreamingClient:
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             raise
-    
-    def register_event_handler(self, event_type: str, handler: Callable) -> None:
-        """
-        Register an event handler for specific event types.
-        
+
+    def register_event_handler(self, event_type: str, handler: Callable[..., Any]) -> None:
+        """Register an event handler for specific event types.
+
         Args:
             event_type: Type of event to handle (e.g., 'company-profile', 'officers')
             handler: Async function to handle the event
         """
         self.event_handlers[event_type] = handler
         logger.info(f"Registered handler for event type: {event_type}")
-    
+
     async def _handle_event(self, event_data: Dict[str, Any]) -> None:
-        """
-        Process incoming streaming events.
-        
+        """Process incoming streaming events.
+
         Args:
             event_data: The event data received from the stream
         """
         try:
-            event_type = event_data.get('resource_kind', 'unknown')
-            event_id = event_data.get('resource_id', 'unknown')
-            
+            event_type = event_data.get("resource_kind", "unknown")
+            event_id = event_data.get("resource_id", "unknown")
+
             logger.debug(f"Processing event {event_id} of type {event_type}")
-            
+
             # Update heartbeat
             self.last_heartbeat = datetime.now()
-            
+
             # Check if we have a handler for this event type
             if event_type in self.event_handlers:
                 handler = self.event_handlers[event_type]
                 await handler(event_data)
             else:
                 logger.debug(f"No handler registered for event type: {event_type}")
-                
+
         except Exception as e:
             logger.error(f"Error handling event: {e}", exc_info=True)
-    
-    async def stream_events(self, 
-                          timepoint: Optional[int] = None) -> AsyncGenerator[Dict[str, Any], None]:
-        """
-        Stream events from the Companies House Streaming API.
-        
+
+    async def stream_events(
+        self, timepoint: Optional[int] = None
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Stream events from the Companies House Streaming API.
+
         Args:
             timepoint: Optional timepoint to start streaming from
-            
+
         Yields:
             Dict containing event data
         """
         if not self.is_connected:
             raise RuntimeError("Client not connected. Call connect() first.")
-            
-        url = urljoin(self.config.api_base_url, '/firehose')
+
+        url = urljoin(self.config.api_base_url, "/firehose")
         params = {}
-        
+
         if timepoint:
-            params['timepoint'] = timepoint
-            
+            params["timepoint"] = timepoint
+
         retries = 0
         backoff = self.config.initial_backoff
-        
+
         while not self._shutdown_event.is_set() and retries < self.config.max_retries:
             try:
                 logger.info(f"Starting event stream (attempt {retries + 1})")
                 await self._wait_for_rate_limit()
-                
+
+                if self.session is None:
+                    raise RuntimeError("Session not established")
                 async with self.session.get(url, params=params) as response:
                     if response.status == 429:
                         # Handle rate limiting
-                        retry_after = response.headers.get('Retry-After', '60')
+                        retry_after = response.headers.get("Retry-After", "60")
                         logger.warning(f"Rate limited. Retrying after {retry_after} seconds")
                         await asyncio.sleep(int(retry_after))
                         continue
                     elif response.status != 200:
                         raise ClientError(f"Stream request failed with status {response.status}")
-                    
+
                     logger.info("Event stream established")
                     retries = 0  # Reset retry counter on successful connection
                     backoff = self.config.initial_backoff
-                    
+
                     # Process streaming data line by line
                     async for line in response.content:
                         if self._shutdown_event.is_set():
                             break
-                            
+
                         try:
                             # Skip empty lines
-                            line = line.decode('utf-8').strip()
-                            if not line:
+                            line_str = line.decode("utf-8").strip()
+                            if not line_str:
                                 continue
-                                
+
                             # Parse JSON event
                             try:
-                                event_data = json.loads(line)
-                                
+                                event_data = json.loads(line_str)
+
                                 # Check if we should process in degraded mode
                                 if not self.should_process_in_degraded_mode(event_data):
                                     continue
-                                
+
                                 # Yield the event for external processing
                                 yield event_data
-                                
+
                                 # Also handle internally if handlers are registered
                                 await self._handle_event(event_data)
-                                
+
                             except json.JSONDecodeError as e:
-                                logger.warning(f"Failed to parse JSON event: {line[:100]}... - {e}")
+                                logger.warning(
+                                    f"Failed to parse JSON event: {line_str[:100]}... - {e}"
+                                )
                                 continue
                             except UnicodeDecodeError as e:
                                 logger.warning(f"Failed to decode line: {e}")
@@ -353,23 +348,23 @@ class StreamingClient:
                         except Exception as e:
                             logger.error(f"Error processing stream line: {e}")
                             continue
-                                
+
             except (ClientConnectorError, ServerTimeoutError, asyncio.TimeoutError) as e:
                 retries += 1
                 self._record_failure(e)
                 logger.error(f"Stream connection failed (attempt {retries}): {e}")
-                
+
                 if retries >= self.config.max_retries:
                     logger.error("Max retries exceeded, enabling degraded mode")
                     self.enable_degraded_mode()
                     raise
-                
+
                 # Use adaptive retry delay
                 wait_time = self.calculate_retry_delay(e, retries)
                 logger.info(f"Retrying in {wait_time:.2f} seconds...")
                 await asyncio.sleep(wait_time)
                 backoff *= 2
-                
+
                 # Reconnect session if needed
                 if self.session and self.session.closed:
                     await self.disconnect()
@@ -381,83 +376,79 @@ class StreamingClient:
             except Exception as e:
                 retries += 1
                 logger.error(f"Unexpected error in stream (attempt {retries}): {e}")
-                
+
                 if retries >= self.config.max_retries:
                     logger.error("Max retries exceeded, giving up")
                     raise
-                
+
                 # Use shorter backoff for unexpected errors
                 wait_time = min(self.config.initial_backoff, self.config.max_backoff)
                 await asyncio.sleep(wait_time)
-    
-    async def monitor_company_status_changes(self, 
-                                           callback: Optional[Callable] = None) -> None:
-        """
-        Monitor the stream for company status changes relevant to strike-off detection.
-        
+
+    async def monitor_company_status_changes(
+        self, callback: Optional[Callable[..., Any]] = None
+    ) -> None:
+        """Monitor the stream for company status changes relevant to strike-off detection.
+
         Args:
             callback: Optional callback function to process relevant events
         """
         logger.info("Starting company status monitoring...")
-        
-        strike_off_statuses = [
-            "active-proposal-to-strike-off",
-            "Active - Proposal to Strike Off"
-        ]
-        
+
+        strike_off_statuses = ["active-proposal-to-strike-off", "Active - Proposal to Strike Off"]
+
         try:
             async for event in self.stream_events():
                 # Filter for company profile changes
-                if event.get('resource_kind') == 'company-profile':
-                    company_data = event.get('data', {})
-                    company_number = company_data.get('company_number')
-                    company_status = company_data.get('company_status', '').lower()
-                    
+                if event.get("resource_kind") == "company-profile":
+                    company_data = event.get("data", {})
+                    company_number = company_data.get("company_number")
+                    company_status = company_data.get("company_status", "").lower()
+
                     # Check if this is a strike-off related status change
                     is_strike_off = any(
-                        status.lower().replace(' ', '-') in company_status or 
-                        company_status in status.lower().replace(' ', '-')
+                        status.lower().replace(" ", "-") in company_status
+                        or company_status in status.lower().replace(" ", "-")
                         for status in strike_off_statuses
                     )
-                    
+
                     if is_strike_off:
                         logger.info(f"Strike-off status detected for company {company_number}")
-                        
+
                         if callback:
                             await callback(event)
                         else:
                             # Default handling - log the event
                             logger.info(f"Company {company_number} status change: {company_status}")
-                            
+
         except Exception as e:
             logger.error(f"Error in status monitoring: {e}")
             raise
-    
+
     async def auto_reconnect(self) -> None:
-        """
-        Automatically reconnect with exponential backoff.
-        
+        """Automatically reconnect with exponential backoff.
+
         This method attempts to reconnect to the streaming API with
         exponential backoff and jitter to handle temporary outages.
         """
         retries = 0
         backoff = self.config.initial_backoff
-        
+
         while retries < self.config.max_retries and not self._shutdown_event.is_set():
             try:
                 logger.info(f"Attempting auto-reconnection (attempt {retries + 1})")
                 await self.connect()
                 logger.info("Auto-reconnection successful")
                 return
-                
+
             except Exception as e:
                 retries += 1
                 logger.error(f"Auto-reconnection failed (attempt {retries}): {e}")
-                
+
                 if retries >= self.config.max_retries:
                     logger.error("Max auto-reconnection attempts exceeded")
                     raise
-                
+
                 # Exponential backoff with jitter
                 jitter = random.uniform(0.1, 0.3) * backoff
                 wait_time = min(backoff + jitter, self.config.max_backoff)
@@ -466,49 +457,45 @@ class StreamingClient:
                 backoff *= 2
 
     async def get_current_timepoint(self) -> int:
-        """
-        Get the current timepoint from the streaming API.
-        
+        """Get the current timepoint from the streaming API.
+
         Returns:
             Current timepoint value
         """
         if not self.session:
             raise RuntimeError("Client not connected")
-            
-        url = urljoin(self.config.api_base_url, '/firehose')
-        
+
+        url = urljoin(self.config.api_base_url, "/firehose")
+
         try:
             await self._wait_for_rate_limit()
             async with self.session.head(url) as response:
                 if response.status == 200:
-                    timepoint = response.headers.get('X-Stream-Timepoint')
+                    timepoint = response.headers.get("X-Stream-Timepoint")
                     if timepoint:
                         return int(timepoint)
-                    else:
-                        raise ValueError("No timepoint header in response")
-                elif response.status == 429:
-                    retry_after = response.headers.get('Retry-After', '60')
+                    raise ValueError("No timepoint header in response")
+                if response.status == 429:
+                    retry_after = response.headers.get("Retry-After", "60")
                     raise ClientError(f"Rate limited - retry after {retry_after} seconds")
-                else:
-                    raise ClientError(f"Failed to get timepoint: status {response.status}")
+                raise ClientError(f"Failed to get timepoint: status {response.status}")
         except Exception as e:
             logger.error(f"Error getting current timepoint: {e}")
             raise
-    
+
     def is_healthy(self) -> bool:
-        """
-        Check if the streaming connection is healthy.
-        
+        """Check if the streaming connection is healthy.
+
         Returns:
             True if connection is healthy, False otherwise
         """
         if not self.is_connected or not self.last_heartbeat:
             return False
-            
+
         # Check if we've received data recently
         time_since_heartbeat = (datetime.now() - self.last_heartbeat).total_seconds()
         return time_since_heartbeat < self.config.health_check_interval
-    
+
     def enable_degraded_mode(self) -> None:
         """Enable degraded mode for graceful degradation."""
         self.is_degraded_mode = True
@@ -518,20 +505,17 @@ class StreamingClient:
         """Determine if event should be processed in degraded mode."""
         if not self.is_degraded_mode:
             return True
-            
+
         # In degraded mode, only process critical events (strike-off status)
-        if event_data.get('resource_kind') == 'company-profile':
-            company_data = event_data.get('data', {})
-            company_status = company_data.get('company_status', '').lower()
-            
+        if event_data.get("resource_kind") == "company-profile":
+            company_data = event_data.get("data", {})
+            company_status = company_data.get("company_status", "").lower()
+
             # Process strike-off related status changes
-            strike_off_statuses = [
-                "active-proposal-to-strike-off",
-                "proposal-to-strike-off"
-            ]
-            
+            strike_off_statuses = ["active-proposal-to-strike-off", "proposal-to-strike-off"]
+
             return any(status.lower() in company_status for status in strike_off_statuses)
-        
+
         return False
 
     async def fallback_to_polling(self) -> None:
@@ -544,13 +528,13 @@ class StreamingClient:
         try:
             # Try to establish connection
             await self.connect()
-            
+
             # If successful, disable degraded mode
             self.is_degraded_mode = False
             self.is_polling_mode = False
             logger.info("Successfully recovered from degraded mode")
             return True
-            
+
         except Exception as e:
             logger.error(f"Recovery attempt failed: {e}")
             return False
@@ -560,62 +544,71 @@ class StreamingClient:
         if isinstance(error, ClientResponseError):
             if error.status == 429:
                 # Rate limit error - use Retry-After header
-                retry_after = error.headers.get('Retry-After', '60')
-                try:
-                    return float(retry_after)
-                except ValueError:
-                    return 60.0
-            elif 500 <= error.status < 600:
+                if error.headers is not None:
+                    retry_after = error.headers.get("Retry-After", "60")
+                    try:
+                        return float(retry_after)
+                    except ValueError:
+                        return 60.0
+                return 60.0
+            if 500 <= error.status < 600:
                 # Server errors - use shorter backoff
-                return min(self.config.initial_backoff * (2 ** (attempt - 1)), 
-                          self.config.max_backoff / 2)
-        
+                return float(
+                    min(
+                        self.config.initial_backoff * (2 ** (attempt - 1)),
+                        self.config.max_backoff / 2,
+                    )
+                )
+
         elif isinstance(error, (ClientConnectorError, asyncio.TimeoutError)):
             # Network errors - use exponential backoff with jitter
             backoff = self.config.initial_backoff * (2 ** (attempt - 1))
             jitter = random.uniform(0.1, 0.3) * backoff
-            return min(backoff + jitter, self.config.max_backoff)
-        
+            return float(min(backoff + jitter, self.config.max_backoff))
+
         # Default backoff for other errors
-        return self.config.initial_backoff
+        return float(self.config.initial_backoff)
 
     def get_circuit_breaker_metrics(self) -> Dict[str, Any]:
         """Get circuit breaker metrics."""
         return {
-            'state': self._circuit_breaker_state,
-            'failure_count': self._failure_count,
-            'success_count': self._success_count,
-            'last_failure_time': self._last_failure_time.isoformat() if self._last_failure_time else None,
-            'open_duration': (datetime.now() - self._last_failure_time).total_seconds() 
-                           if self._last_failure_time and self._circuit_breaker_state == "open" else 0
+            "state": self._circuit_breaker_state,
+            "failure_count": self._failure_count,
+            "success_count": self._success_count,
+            "last_failure_time": self._last_failure_time.isoformat()
+            if self._last_failure_time
+            else None,
+            "open_duration": (datetime.now() - self._last_failure_time).total_seconds()
+            if self._last_failure_time and self._circuit_breaker_state == "open"
+            else 0,
         }
 
     def get_error_metrics(self) -> Dict[str, Any]:
         """Get error metrics."""
         now = datetime.now()
         error_rate = 0.0
-        
+
         if self._last_error_time:
             time_window = max((now - self._last_error_time).total_seconds(), 1)
             error_rate = self._error_count / time_window
-        
+
         return {
-            'total_errors': self._error_count,
-            'error_types': dict(self._error_types),
-            'last_error_time': self._last_error_time.isoformat() if self._last_error_time else None,
-            'error_rate': error_rate
+            "total_errors": self._error_count,
+            "error_types": dict(self._error_types),
+            "last_error_time": self._last_error_time.isoformat() if self._last_error_time else None,
+            "error_rate": error_rate,
         }
 
     def get_health_status(self) -> Dict[str, Any]:
         """Get comprehensive health status."""
         return {
-            'is_connected': self.is_connected,
-            'last_heartbeat': self.last_heartbeat.isoformat() if self.last_heartbeat else None,
-            'circuit_breaker_state': self._circuit_breaker_state,
-            'error_count': self._error_count,
-            'degraded_mode': self.is_degraded_mode,
-            'polling_mode': self.is_polling_mode,
-            'connection_attempts': self._connection_attempts
+            "is_connected": self.is_connected,
+            "last_heartbeat": self.last_heartbeat.isoformat() if self.last_heartbeat else None,
+            "circuit_breaker_state": self._circuit_breaker_state,
+            "error_count": self._error_count,
+            "degraded_mode": self.is_degraded_mode,
+            "polling_mode": self.is_polling_mode,
+            "connection_attempts": self._connection_attempts,
         }
 
     async def shutdown(self) -> None:

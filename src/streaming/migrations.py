@@ -1,12 +1,8 @@
-"""
-Database migration utilities for streaming API integration.
-"""
+"""Database migration utilities for streaming API integration."""
 
-import sqlite3
 import logging
+import sqlite3
 from datetime import datetime
-from typing import Optional
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +54,13 @@ class DatabaseMigration:
             """)
 
             # Insert new version
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO schema_version (version, applied_at)
                 VALUES (?, ?)
-            """, (version, datetime.now().isoformat()))
+            """,
+                (version, datetime.now().isoformat()),
+            )
 
             conn.commit()
             logger.info(f"Schema version set to {version}")
@@ -73,8 +72,7 @@ class DatabaseMigration:
             conn.close()
 
     def migration_001_create_base_tables(self) -> None:
-        """
-        Migration 001: Create base tables for streaming functionality.
+        """Migration 001: Create base tables for streaming functionality.
 
         - Create companies table if it doesn't exist
         - Fix officers table schema (rename 'role' to 'officer_role')
@@ -133,7 +131,7 @@ class DatabaseMigration:
             """)
 
             # Copy existing data with role -> officer_role mapping
-            if 'role' in columns:
+            if "role" in columns:
                 cursor.execute("""
                     INSERT INTO officers_new
                     (id, company_number, name, officer_role, appointed_on, resigned_on, officer_id)
@@ -147,8 +145,12 @@ class DatabaseMigration:
             cursor.execute("ALTER TABLE officers_new RENAME TO officers")
 
             # Create indexes for better performance
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_officers_company_number ON officers(company_number)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_officers_officer_role ON officers(officer_role)")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_officers_company_number ON officers(company_number)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_officers_officer_role ON officers(officer_role)"
+            )
 
             conn.commit()
             logger.info("Migration 001 completed: Created base tables and fixed officers schema")
@@ -161,8 +163,7 @@ class DatabaseMigration:
             conn.close()
 
     def migration_002_add_streaming_metadata(self) -> None:
-        """
-        Migration 002: Add streaming metadata to companies table.
+        """Migration 002: Add streaming metadata to companies table.
 
         - Add streaming-related columns for tracking data sources and updates
         """
@@ -176,7 +177,7 @@ class DatabaseMigration:
                 ("stream_status", "TEXT DEFAULT 'unknown'"),
                 ("data_source", "TEXT DEFAULT 'bulk'"),  # 'bulk', 'stream', or 'both'
                 ("last_stream_event_id", "TEXT"),
-                ("stream_metadata", "TEXT")  # JSON for additional metadata
+                ("stream_metadata", "TEXT"),  # JSON for additional metadata
             ]
 
             for column_name, column_type in streaming_columns:
@@ -204,11 +205,21 @@ class DatabaseMigration:
             """)
 
             # Create indexes for streaming tables
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_companies_stream_status ON companies(stream_status)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_companies_data_source ON companies(data_source)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_stream_events_company_number ON stream_events(company_number)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_stream_events_event_type ON stream_events(event_type)")
-            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_stream_events_event_id ON stream_events(event_id)")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_companies_stream_status ON companies(stream_status)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_companies_data_source ON companies(data_source)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_stream_events_company_number ON stream_events(company_number)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_stream_events_event_type ON stream_events(event_type)"
+            )
+            cursor.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_stream_events_event_id ON stream_events(event_id)"
+            )
 
             conn.commit()
             logger.info("Migration 002 completed: Added streaming metadata")
@@ -258,8 +269,7 @@ if __name__ == "__main__":
 
     # Configure logging for standalone execution
     logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
     db_path = sys.argv[1] if len(sys.argv) > 1 else "companies.db"

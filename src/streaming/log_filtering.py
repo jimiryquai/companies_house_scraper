@@ -1,23 +1,22 @@
-"""
-Log filtering and sampling functionality for streaming module.
+"""Log filtering and sampling functionality for streaming module.
 Provides configurable filtering and sampling to manage log volume and noise.
 """
 
-import asyncio
-import re
 import random
+import re
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Pattern, Union
-from dataclasses import dataclass, field
 from collections import deque
+from datetime import datetime, timedelta
 from enum import Enum
+from re import Pattern
+from typing import Any, Dict, List, Optional
 
-from .structured_logger import StructuredLogger, LogEntry, LogLevel, LogContext
+from .structured_logger import LogContext, LogEntry, LogLevel, StructuredLogger
 
 
 class FilteringError(Exception):
     """Error in filtering system."""
+
     pass
 
 
@@ -26,8 +25,7 @@ class LogFilter(ABC):
 
     @abstractmethod
     def should_log(self, log_entry: LogEntry) -> bool:
-        """
-        Determine if a log entry should be logged.
+        """Determine if a log entry should be logged.
 
         Returns True if the entry should be logged, False otherwise.
         """
@@ -39,8 +37,7 @@ class LogSampler(ABC):
 
     @abstractmethod
     def should_sample(self, log_entry: LogEntry) -> bool:
-        """
-        Determine if a log entry should be sampled (kept).
+        """Determine if a log entry should be sampled (kept).
 
         Returns True if the entry should be kept, False if it should be dropped.
         """
@@ -65,11 +62,11 @@ class PatternFilter(LogFilter):
     def __init__(
         self,
         include_patterns: Optional[List[str]] = None,
-        exclude_patterns: Optional[List[str]] = None
+        exclude_patterns: Optional[List[str]] = None,
     ):
         """Initialize pattern filter."""
-        self.include_patterns: List[Pattern] = []
-        self.exclude_patterns: List[Pattern] = []
+        self.include_patterns: List[Pattern[str]] = []
+        self.exclude_patterns: List[Pattern[str]] = []
 
         if include_patterns:
             self.include_patterns = [
@@ -105,11 +102,7 @@ class PatternFilter(LogFilter):
 class RateLimitFilter(LogFilter):
     """Filter based on rate limiting."""
 
-    def __init__(
-        self,
-        max_logs_per_minute: int,
-        burst_size: int = 10
-    ):
+    def __init__(self, max_logs_per_minute: int, burst_size: int = 10):
         """Initialize rate limit filter."""
         self.max_logs_per_minute = max_logs_per_minute
         self.burst_size = burst_size
@@ -154,7 +147,7 @@ class ContextFilter(LogFilter):
     def __init__(
         self,
         required_context: Optional[Dict[str, Any]] = None,
-        excluded_context: Optional[Dict[str, Any]] = None
+        excluded_context: Optional[Dict[str, Any]] = None,
     ):
         """Initialize context filter."""
         self.required_context = required_context or {}
@@ -179,6 +172,7 @@ class ContextFilter(LogFilter):
 
 class SamplingStrategy(Enum):
     """Sampling strategies."""
+
     RANDOM = "random"
     TIME_BASED = "time_based"
     VOLUME_BASED = "volume_based"
@@ -202,11 +196,7 @@ class RandomSampler(LogSampler):
 class TimeBasedSampler(LogSampler):
     """Time-based sampling with fixed intervals."""
 
-    def __init__(
-        self,
-        interval_seconds: int,
-        max_per_interval: int
-    ):
+    def __init__(self, interval_seconds: int, max_per_interval: int):
         """Initialize time-based sampler."""
         self.interval_seconds = interval_seconds
         self.max_per_interval = max_per_interval
@@ -241,7 +231,7 @@ class VolumeBasedSampler(LogSampler):
         high_volume_threshold: int,
         low_volume_rate: float,
         high_volume_rate: float,
-        window_minutes: int = 5
+        window_minutes: int = 5,
     ):
         """Initialize volume-based sampler."""
         self.low_volume_threshold = low_volume_threshold
@@ -251,7 +241,7 @@ class VolumeBasedSampler(LogSampler):
         self.window_minutes = window_minutes
 
         # Track recent log volume
-        self.recent_logs: deque = deque()
+        self.recent_logs: deque[datetime] = deque()
         self.recent_log_count = 0
 
     def should_sample(self, log_entry: LogEntry) -> bool:
@@ -347,7 +337,7 @@ class FilteredLogger:
         message: str,
         context: Optional[LogContext] = None,
         extra_data: Optional[Dict[str, Any]] = None,
-        exception: Optional[Exception] = None
+        exception: Optional[Exception] = None,
     ) -> None:
         """Log a message through filters and samplers."""
         # Create log entry for filtering
@@ -356,7 +346,7 @@ class FilteredLogger:
             level=level,
             message=message,
             context=context or LogContext(),
-            extra_data=extra_data
+            extra_data=extra_data,
         )
 
         # Check if should log
@@ -368,7 +358,7 @@ class FilteredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None
+        extra_data: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Log debug message with filtering."""
         await self.log(LogLevel.DEBUG, message, context, extra_data)
@@ -377,7 +367,7 @@ class FilteredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None
+        extra_data: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Log info message with filtering."""
         await self.log(LogLevel.INFO, message, context, extra_data)
@@ -386,7 +376,7 @@ class FilteredLogger:
         self,
         message: str,
         context: Optional[LogContext] = None,
-        extra_data: Optional[Dict[str, Any]] = None
+        extra_data: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Log warning message with filtering."""
         await self.log(LogLevel.WARNING, message, context, extra_data)
@@ -396,7 +386,7 @@ class FilteredLogger:
         message: str,
         context: Optional[LogContext] = None,
         extra_data: Optional[Dict[str, Any]] = None,
-        exception: Optional[Exception] = None
+        exception: Optional[Exception] = None,
     ) -> None:
         """Log error message with filtering."""
         await self.log(LogLevel.ERROR, message, context, extra_data, exception)
@@ -406,7 +396,7 @@ class FilteredLogger:
         message: str,
         context: Optional[LogContext] = None,
         extra_data: Optional[Dict[str, Any]] = None,
-        exception: Optional[Exception] = None
+        exception: Optional[Exception] = None,
     ) -> None:
         """Log critical message with filtering."""
         await self.log(LogLevel.CRITICAL, message, context, extra_data, exception)
@@ -416,7 +406,7 @@ class FilteredLogger:
         message: str,
         context: Optional[LogContext] = None,
         extra_data: Optional[Dict[str, Any]] = None,
-        exception: Optional[Exception] = None
+        exception: Optional[Exception] = None,
     ) -> None:
         """Log exception with filtering."""
         await self.log(LogLevel.ERROR, message, context, extra_data, exception)
@@ -430,7 +420,7 @@ class FilteredLogger:
             "logged": self.logged,
             "filter_rate": self.filtered_out / max(self.total_processed, 1),
             "sample_rate": self.sampled_out / max(self.total_processed, 1),
-            "pass_through_rate": self.logged / max(self.total_processed, 1)
+            "pass_through_rate": self.logged / max(self.total_processed, 1),
         }
 
     def reset_statistics(self) -> None:
@@ -443,15 +433,18 @@ class FilteredLogger:
 
 # Factory functions for common configurations
 
+
 def create_production_filters() -> List[LogFilter]:
     """Create filters for production environment."""
     return [
         LevelFilter(min_level=LogLevel.INFO),  # No debug logs in production
         RateLimitFilter(max_logs_per_minute=1000, burst_size=50),  # Rate limiting
-        PatternFilter(exclude_patterns=[
-            r".*health.*check.*",  # Exclude health check noise
-            r".*heartbeat.*",      # Exclude heartbeat messages
-        ])
+        PatternFilter(
+            exclude_patterns=[
+                r".*health.*check.*",  # Exclude health check noise
+                r".*heartbeat.*",  # Exclude heartbeat messages
+            ]
+        ),
     ]
 
 
@@ -459,7 +452,7 @@ def create_development_filters() -> List[LogFilter]:
     """Create filters for development environment."""
     return [
         LevelFilter(min_level=LogLevel.DEBUG),  # Allow all levels in dev
-        RateLimitFilter(max_logs_per_minute=10000, burst_size=100)  # Higher limits
+        RateLimitFilter(max_logs_per_minute=10000, burst_size=100),  # Higher limits
     ]
 
 
@@ -468,9 +461,9 @@ def create_adaptive_sampler() -> VolumeBasedSampler:
     return VolumeBasedSampler(
         low_volume_threshold=50,
         high_volume_threshold=500,
-        low_volume_rate=1.0,     # 100% sampling during low volume
-        high_volume_rate=0.1,    # 10% sampling during high volume
-        window_minutes=5
+        low_volume_rate=1.0,  # 100% sampling during low volume
+        high_volume_rate=0.1,  # 10% sampling during high volume
+        window_minutes=5,
     )
 
 
@@ -480,8 +473,7 @@ def create_debug_sampler() -> RandomSampler:
 
 
 def setup_filtered_logger(
-    base_logger: StructuredLogger,
-    environment: str = "production"
+    base_logger: StructuredLogger, environment: str = "production"
 ) -> FilteredLogger:
     """Set up filtered logger with common configuration."""
     filtered_logger = FilteredLogger(base_logger)

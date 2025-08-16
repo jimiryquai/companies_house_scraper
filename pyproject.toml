@@ -40,6 +40,7 @@ dev = [
     "ruff>=0.12.9",
     "mypy>=1.11.2",
     "pre-commit>=4.0.0",
+    "types-psutil>=7.0.0.20250801",
 ]
 
 # Optional: Define development dependencies like linters, formatters, testing tools

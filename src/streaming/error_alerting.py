@@ -1,43 +1,46 @@
-"""
-Error logging and alerting system for streaming module.
+"""Error logging and alerting system for streaming module.
 Provides pattern-based error detection and multi-channel alerting capabilities.
 """
 
-import asyncio
 import json
-import re
 import logging
+import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Dict, Any, List, Optional, Pattern, Union
-from dataclasses import dataclass, field
 from pathlib import Path
+from re import Pattern
+from typing import Any, Dict, List, Optional
 
 try:
     import smtplib
-    from email.mime.text import MimeText
-    from email.mime.multipart import MimeMultipart
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
     EMAIL_AVAILABLE = True
 except ImportError:
     EMAIL_AVAILABLE = False
 
 try:
     import aiohttp
+
     HTTP_AVAILABLE = True
 except ImportError:
     HTTP_AVAILABLE = False
 
 from .config import StreamingConfig
-from .structured_logger import LogEntry, LogLevel, LogContext, StructuredLogger
+from .structured_logger import LogEntry, LogLevel
 
 
 class AlertingError(Exception):
     """Error in alerting system."""
+
     pass
 
 
 class AlertLevel(Enum):
     """Alert severity levels."""
+
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
@@ -49,13 +52,14 @@ class AlertLevel(Enum):
             AlertLevel.LOW: 1,
             AlertLevel.MEDIUM: 2,
             AlertLevel.HIGH: 3,
-            AlertLevel.CRITICAL: 4
+            AlertLevel.CRITICAL: 4,
         }[self]
 
 
 @dataclass
 class ErrorPattern:
     """Pattern for matching and classifying errors."""
+
     name: str
     message_regex: Optional[str] = None
     error_type_regex: Optional[str] = None
@@ -63,10 +67,10 @@ class ErrorPattern:
     alert_level: AlertLevel = AlertLevel.MEDIUM
     context_filters: Optional[Dict[str, str]] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Compile regex patterns after initialization."""
-        self._message_pattern: Optional[Pattern] = None
-        self._error_type_pattern: Optional[Pattern] = None
+        self._message_pattern: Optional[Pattern[str]] = None
+        self._error_type_pattern: Optional[Pattern[str]] = None
 
         if self.message_regex:
             self._message_pattern = re.compile(self.message_regex, re.IGNORECASE)
@@ -103,14 +107,14 @@ class ErrorPattern:
 @dataclass
 class AlertThreshold:
     """Threshold configuration for triggering alerts."""
+
     pattern_name: str
     max_occurrences: int
     time_window_minutes: int
     alert_level: AlertLevel
 
     def should_alert(self, occurrences: List[datetime]) -> tuple[bool, int]:
-        """
-        Check if alert should be triggered based on occurrences.
+        """Check if alert should be triggered based on occurrences.
 
         Returns (should_alert, occurrence_count)
         """
@@ -132,8 +136,7 @@ class AlertChannel:
         pass
 
     async def send_alert(self, alert_data: Dict[str, Any]) -> bool:
-        """
-        Send an alert through this channel.
+        """Send an alert through this channel.
 
         Returns True if successful, False otherwise.
         """
@@ -151,7 +154,7 @@ class EmailAlertChannel(AlertChannel):
         password: str,
         from_email: str,
         to_emails: List[str],
-        use_tls: bool = True
+        use_tls: bool = True,
     ):
         """Initialize email alert channel."""
         if not EMAIL_AVAILABLE:
@@ -169,32 +172,34 @@ class EmailAlertChannel(AlertChannel):
         """Send alert via email."""
         try:
             # Build email content
-            subject = f"[{alert_data['alert_level'].value}] Streaming Alert: {alert_data['pattern_name']}"
+            subject = (
+                f"[{alert_data['alert_level'].value}] Streaming Alert: {alert_data['pattern_name']}"
+            )
 
             body = f"""
 Streaming System Alert
 
-Pattern: {alert_data['pattern_name']}
-Alert Level: {alert_data['alert_level'].value}
-Message: {alert_data['message']}
-Occurrence Count: {alert_data.get('count', 1)}
-Time Window: {alert_data.get('time_window', 'N/A')}
+Pattern: {alert_data["pattern_name"]}
+Alert Level: {alert_data["alert_level"].value}
+Message: {alert_data["message"]}
+Occurrence Count: {alert_data.get("count", 1)}
+Time Window: {alert_data.get("time_window", "N/A")}
 Timestamp: {datetime.now().isoformat()}
 
 Additional Details:
-{json.dumps(alert_data.get('extra_data', {}), indent=2)}
+{json.dumps(alert_data.get("extra_data", {}), indent=2)}
 
 ---
 Streaming System Monitoring
 """
 
             # Create message
-            msg = MimeMultipart()
-            msg['From'] = self.from_email
-            msg['To'] = ', '.join(self.to_emails)
-            msg['Subject'] = subject
+            msg = MIMEMultipart()
+            msg["From"] = self.from_email
+            msg["To"] = ", ".join(self.to_emails)
+            msg["Subject"] = subject
 
-            msg.attach(MimeText(body, 'plain'))
+            msg.attach(MIMEText(body, "plain"))
 
             # Send email
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
@@ -219,7 +224,7 @@ class SlackAlertChannel(AlertChannel):
         webhook_url: str,
         channel: Optional[str] = None,
         username: Optional[str] = None,
-        icon_emoji: Optional[str] = None
+        icon_emoji: Optional[str] = None,
     ):
         """Initialize Slack alert channel."""
         if not HTTP_AVAILABLE:
@@ -234,41 +239,31 @@ class SlackAlertChannel(AlertChannel):
         """Send alert to Slack."""
         try:
             # Build Slack message
-            alert_level = alert_data['alert_level']
+            alert_level = alert_data["alert_level"]
             color_map = {
                 AlertLevel.LOW: "good",
                 AlertLevel.MEDIUM: "warning",
                 AlertLevel.HIGH: "danger",
-                AlertLevel.CRITICAL: "danger"
+                AlertLevel.CRITICAL: "danger",
             }
 
             attachment = {
                 "color": color_map.get(alert_level, "warning"),
                 "title": f"Streaming Alert: {alert_data['pattern_name']}",
-                "text": alert_data['message'],
+                "text": alert_data["message"],
                 "fields": [
-                    {
-                        "title": "Alert Level",
-                        "value": alert_level.value,
-                        "short": True
-                    },
-                    {
-                        "title": "Count",
-                        "value": str(alert_data.get('count', 1)),
-                        "short": True
-                    },
+                    {"title": "Alert Level", "value": alert_level.value, "short": True},
+                    {"title": "Count", "value": str(alert_data.get("count", 1)), "short": True},
                     {
                         "title": "Time Window",
-                        "value": alert_data.get('time_window', 'N/A'),
-                        "short": True
-                    }
+                        "value": alert_data.get("time_window", "N/A"),
+                        "short": True,
+                    },
                 ],
-                "ts": int(datetime.now().timestamp())
+                "ts": int(datetime.now().timestamp()),
             }
 
-            payload = {
-                "attachments": [attachment]
-            }
+            payload: Dict[str, Any] = {"attachments": [attachment]}
 
             if self.channel:
                 payload["channel"] = self.channel
@@ -280,9 +275,7 @@ class SlackAlertChannel(AlertChannel):
             # Send to Slack
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    self.webhook_url,
-                    json=payload,
-                    headers={"Content-Type": "application/json"}
+                    self.webhook_url, json=payload, headers={"Content-Type": "application/json"}
                 ) as response:
                     return response.status == 200
 
@@ -295,10 +288,7 @@ class WebhookAlertChannel(AlertChannel):
     """Generic webhook-based alert channel."""
 
     def __init__(
-        self,
-        webhook_url: str,
-        headers: Optional[Dict[str, str]] = None,
-        timeout_seconds: int = 30
+        self, webhook_url: str, headers: Optional[Dict[str, str]] = None, timeout_seconds: int = 30
     ):
         """Initialize webhook alert channel."""
         if not HTTP_AVAILABLE:
@@ -313,18 +303,18 @@ class WebhookAlertChannel(AlertChannel):
         try:
             # Convert AlertLevel enum to string for JSON serialization
             payload = {**alert_data}
-            if 'alert_level' in payload:
-                payload['alert_level'] = payload['alert_level'].value
+            if "alert_level" in payload:
+                payload["alert_level"] = payload["alert_level"].value
 
-            payload['timestamp'] = datetime.now().isoformat()
-            payload['alert_type'] = 'streaming_error'
+            payload["timestamp"] = datetime.now().isoformat()
+            payload["alert_type"] = "streaming_error"
 
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     self.webhook_url,
                     json=payload,
                     headers=self.headers,
-                    timeout=aiohttp.ClientTimeout(total=self.timeout_seconds)
+                    timeout=aiohttp.ClientTimeout(total=self.timeout_seconds),
                 ) as response:
                     return response.status < 400
 
@@ -336,11 +326,7 @@ class WebhookAlertChannel(AlertChannel):
 class LogAlertChannel(AlertChannel):
     """Log file-based alert channel."""
 
-    def __init__(
-        self,
-        log_file: str,
-        log_level: LogLevel = LogLevel.WARNING
-    ):
+    def __init__(self, log_file: str, log_level: LogLevel = LogLevel.WARNING):
         """Initialize log alert channel."""
         self.log_file = log_file
         self.log_level = log_level
@@ -357,9 +343,7 @@ class LogAlertChannel(AlertChannel):
 
         # Add file handler
         handler = logging.FileHandler(self.log_file)
-        formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - %(message)s'
-        )
+        formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         handler.setFormatter(formatter)
         self._logger.addHandler(handler)
 
@@ -379,11 +363,15 @@ class LogAlertChannel(AlertChannel):
 
             alert_message = f"ALERT [{alert_data['alert_level'].value}] {alert_data['pattern_name']}: {alert_data['message']} (Count: {alert_data.get('count', 1)}, Window: {alert_data.get('time_window', 'N/A')})"
 
-            if alert_data['alert_level'] == AlertLevel.CRITICAL:
+            if not self._logger:
+                print(f"Logger not initialized: {alert_message}")
+                return False
+
+            if alert_data["alert_level"] == AlertLevel.CRITICAL:
                 self._logger.critical(alert_message)
-            elif alert_data['alert_level'] == AlertLevel.HIGH:
+            elif alert_data["alert_level"] == AlertLevel.HIGH:
                 self._logger.error(alert_message)
-            elif alert_data['alert_level'] == AlertLevel.MEDIUM:
+            elif alert_data["alert_level"] == AlertLevel.MEDIUM:
                 self._logger.warning(alert_message)
             else:
                 self._logger.info(alert_message)
@@ -449,8 +437,7 @@ class ErrorAlertManager:
         self.thresholds.append(threshold)
 
     async def process_log_entry(self, log_entry: LogEntry) -> bool:
-        """
-        Process a log entry for error patterns and alerting.
+        """Process a log entry for error patterns and alerting.
 
         Returns True if an alert was sent, False otherwise.
         """
@@ -485,7 +472,7 @@ class ErrorAlertManager:
         pattern: ErrorPattern,
         threshold: AlertThreshold,
         log_entry: LogEntry,
-        occurrence_count: int
+        occurrence_count: int,
     ) -> None:
         """Send alert through all configured channels."""
         alert_data = {
@@ -497,7 +484,7 @@ class ErrorAlertManager:
             "context": log_entry.context.to_dict(),
             "extra_data": log_entry.extra_data or {},
             "log_level": log_entry.level.value,
-            "timestamp": log_entry.timestamp.isoformat()
+            "timestamp": log_entry.timestamp.isoformat(),
         }
 
         # Send through all channels
@@ -522,7 +509,7 @@ class ErrorAlertManager:
             "pattern_matches": dict(self.pattern_matches),
             "alerts_sent": self.alerts_sent,
             "active_patterns": [p.name for p in self.patterns],
-            "active_channels": list(self.channels.keys())
+            "active_channels": list(self.channels.keys()),
         }
 
     def cleanup_old_occurrences(self, hours: int = 24) -> None:
@@ -531,12 +518,14 @@ class ErrorAlertManager:
 
         for pattern_name in self.pattern_occurrences:
             self.pattern_occurrences[pattern_name] = [
-                occurrence for occurrence in self.pattern_occurrences[pattern_name]
+                occurrence
+                for occurrence in self.pattern_occurrences[pattern_name]
                 if occurrence >= cutoff_time
             ]
 
 
 # Factory functions for common patterns and channels
+
 
 def create_common_error_patterns() -> List[ErrorPattern]:
     """Create common error patterns for streaming operations."""
@@ -546,34 +535,34 @@ def create_common_error_patterns() -> List[ErrorPattern]:
             message_regex=r".*(api|connection).*(timeout|failed).*",
             error_type_regex=r".*(Timeout|Connection).*",
             log_level=LogLevel.ERROR,
-            alert_level=AlertLevel.HIGH
+            alert_level=AlertLevel.HIGH,
         ),
         ErrorPattern(
             name="database_error",
             message_regex=r".*(database|db).*(error|failed|connection).*",
             error_type_regex=r".*Database.*",
             log_level=LogLevel.ERROR,
-            alert_level=AlertLevel.HIGH
+            alert_level=AlertLevel.HIGH,
         ),
         ErrorPattern(
             name="critical_system_failure",
             log_level=LogLevel.CRITICAL,
-            alert_level=AlertLevel.CRITICAL
+            alert_level=AlertLevel.CRITICAL,
         ),
         ErrorPattern(
             name="rate_limit_exceeded",
             message_regex=r".*(rate.?limit|quota).*exceeded.*",
             error_type_regex=r".*RateLimit.*",
             log_level=LogLevel.WARNING,
-            alert_level=AlertLevel.MEDIUM
+            alert_level=AlertLevel.MEDIUM,
         ),
         ErrorPattern(
             name="authentication_failure",
             message_regex=r".*(auth|authentication).*(failed|invalid|expired).*",
             error_type_regex=r".*Auth.*",
             log_level=LogLevel.ERROR,
-            alert_level=AlertLevel.HIGH
-        )
+            alert_level=AlertLevel.HIGH,
+        ),
     ]
 
 
@@ -584,47 +573,41 @@ def create_standard_thresholds() -> List[AlertThreshold]:
             pattern_name="critical_system_failure",
             max_occurrences=1,
             time_window_minutes=1,
-            alert_level=AlertLevel.CRITICAL
+            alert_level=AlertLevel.CRITICAL,
         ),
         AlertThreshold(
             pattern_name="api_connection_timeout",
             max_occurrences=3,
             time_window_minutes=5,
-            alert_level=AlertLevel.HIGH
+            alert_level=AlertLevel.HIGH,
         ),
         AlertThreshold(
             pattern_name="database_error",
             max_occurrences=2,
             time_window_minutes=5,
-            alert_level=AlertLevel.HIGH
+            alert_level=AlertLevel.HIGH,
         ),
         AlertThreshold(
             pattern_name="rate_limit_exceeded",
             max_occurrences=5,
             time_window_minutes=10,
-            alert_level=AlertLevel.MEDIUM
+            alert_level=AlertLevel.MEDIUM,
         ),
         AlertThreshold(
             pattern_name="authentication_failure",
             max_occurrences=2,
             time_window_minutes=5,
-            alert_level=AlertLevel.HIGH
-        )
+            alert_level=AlertLevel.HIGH,
+        ),
     ]
 
 
 def create_log_alert_channel(log_file: str) -> LogAlertChannel:
     """Create a log-based alert channel."""
-    return LogAlertChannel(
-        log_file=log_file,
-        log_level=LogLevel.INFO
-    )
+    return LogAlertChannel(log_file=log_file, log_level=LogLevel.INFO)
 
 
-def setup_basic_alerting(
-    config: StreamingConfig,
-    alert_log_file: str
-) -> ErrorAlertManager:
+def setup_basic_alerting(config: StreamingConfig, alert_log_file: str) -> ErrorAlertManager:
     """Set up basic error alerting with common patterns and log channel."""
     manager = ErrorAlertManager(config)
 
