@@ -152,6 +152,55 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 - [x] Verify end-to-end functionality with real Companies House data
 - [x] Service ready for production deployment
 
+### Future Enhancement: Enterprise Rate Limiting Resilience
+
+**Task 6.1: Intelligent Queuing System (Foundation Phase)**
+- [x] Design priority-based request queue architecture
+- [x] Implement high-priority queue for real-time status checks
+- [x] Implement low-priority queue for officer fetching operations
+- [x] Add queue monitoring and metrics collection
+- [x] Implement configurable queue limits to prevent memory exhaustion
+- [x] Add queue persistence for service restart resilience
+- [x] Write comprehensive tests for queue operations and edge cases
+
+**Task 6.2: Circuit Breaker Pattern (Reliability Phase)**
+- [ ] Implement API circuit breaker for graceful failure handling
+- [ ] Add automatic failure detection and state transitions
+- [ ] Implement auto-recovery mechanisms when conditions improve
+- [ ] Create degraded mode for storing events when APIs unavailable
+- [ ] Add circuit breaker metrics and operational alerting
+- [ ] Write tests for all circuit breaker states and transitions
+- [ ] Document operational procedures for circuit breaker management
+
+**Task 6.3: Adaptive Rate Limiting (Optimization Phase)**
+- [ ] Implement dynamic rate limit adjustment based on API responses
+- [ ] Add exponential backoff for handling 429 rate limit responses
+- [ ] Create self-tuning algorithms that learn optimal request patterns
+- [ ] Implement rate limit coordination across multiple services
+- [ ] Add real-time rate limiting metrics and dashboards
+- [ ] Write comprehensive load tests for extreme volume scenarios
+- [ ] Document performance tuning guidelines for operations team
+
+**Acceptance Criteria for Rate Limiting Resilience:**
+
+**Reliability Requirements:**
+- [ ] System maintains 99.9% uptime during high-volume periods
+- [ ] Zero data loss during API rate limit violations
+- [ ] Automatic recovery from failures within 5 minutes
+- [ ] Graceful degradation without service crashes
+
+**Performance Requirements:**
+- [ ] Process 10x normal streaming load without system failures
+- [ ] Queue processing maintains real-time responsiveness for critical events
+- [ ] Memory usage remains stable under extreme load conditions
+- [ ] Response times stay within acceptable bounds during peak periods
+
+**Operational Requirements:**
+- [ ] Real-time visibility into queue depth and processing rates
+- [ ] Automated alerting for circuit breaker state changes
+- [ ] Clear operational runbooks for managing high-volume scenarios
+- [ ] Metrics dashboards for monitoring system health and performance
+
 ### Acceptance Criteria
 
 **Functional Requirements:**
