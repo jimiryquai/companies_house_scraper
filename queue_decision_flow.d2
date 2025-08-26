@@ -1,0 +1,420 @@
+# Companies House API Request Queue Decision Flow
+# Intelligent priority-based queuing for rate-limited API calls
+
+start: "New Companies House\nAPI Request" {
+  shape: oval
+  style.fill: "#e1f5fe"
+  style.stroke: "#0288d1"
+  style.stroke-width: 2
+}
+
+# Request Classification
+classify: "Classify Request Type" {
+  shape: diamond
+  style.fill: "#fff3e0"
+  style.stroke: "#f57c00"
+}
+
+start -> classify
+
+# Companies House API Request Types
+status_check: "Company Status Check\n(Strike-off Detection)" {
+  style.fill: "#fce4ec"
+  style.stroke: "#c2185b"
+  style.font-size: 12
+}
+
+officer_fetch: "Officer Data Fetch\n(Directors & Secretaries)" {
+  style.fill: "#f3e5f5"
+  style.stroke: "#7b1fa2"
+  style.font-size: 12
+}
+
+bulk_ops: "Bulk Operations\n(Historical Data/Backfill)" {
+  style.fill: "#ede7f6"
+  style.stroke: "#512da8"
+  style.font-size: 12
+}
+
+maintenance: "Maintenance Tasks\n(Cleanup/Archive)" {
+  style.fill: "#e8eaf6"
+  style.stroke: "#3f51b5"
+  style.font-size: 12
+}
+
+classify -> status_check: "Real-time Status"
+classify -> officer_fetch: "Officer Import"
+classify -> bulk_ops: "Bulk Update"
+classify -> maintenance: "Background Task"
+
+# Priority Assignment
+assign_priority: "Assign Priority Level" {
+  shape: hexagon
+  style.fill: "#e8f5e9"
+  style.stroke: "#2e7d32"
+}
+
+status_check -> assign_priority: "HIGH (1)"
+officer_fetch -> assign_priority: "MEDIUM (2)"
+bulk_ops -> assign_priority: "LOW (3)"
+maintenance -> assign_priority: "BACKGROUND (4)"
+
+# Capacity Check
+check_capacity: "Check Queue Capacity" {
+  shape: diamond
+  style.fill: "#fff8e1"
+  style.stroke: "#f9a825"
+}
+
+assign_priority -> check_capacity
+
+# Capacity Decision Branches
+at_capacity: "Queue at Max Capacity\n(10,000 requests)" {
+  shape: rectangle
+  style.fill: "#ffccbc"
+  style.stroke: "#d84315"
+}
+
+has_capacity: "Queue Has Space" {
+  shape: rectangle
+  style.fill: "#c8e6c9"
+  style.stroke: "#388e3c"
+}
+
+check_capacity -> at_capacity: ">=10,000 queued"
+check_capacity -> has_capacity: "<10,000 queued"
+
+# At Capacity Decision
+force_check: "Is Request HIGH Priority?" {
+  shape: diamond
+  style.fill: "#ffecb3"
+  style.stroke: "#ffa000"
+}
+
+at_capacity -> force_check
+
+drop_request: "Drop Request\n(Log & Metric)" {
+  shape: rectangle
+  style.fill: "#ef9a9a"
+  style.stroke: "#c62828"
+}
+
+force_enqueue: "Force Enqueue\n(Strike-off Detection)" {
+  shape: rectangle
+  style.fill: "#fff59d"
+  style.stroke: "#f9a825"
+}
+
+force_check -> drop_request: "No (Lower Priority)"
+force_check -> force_enqueue: "Yes (HIGH Priority)"
+
+# Duplicate Check
+check_duplicate: "Check for Duplicates" {
+  shape: diamond
+  style.fill: "#e1bee7"
+  style.stroke: "#8e24aa"
+}
+
+has_capacity -> check_duplicate
+force_enqueue -> check_duplicate
+
+reject_duplicate: "Reject Duplicate\n(Already Queued)" {
+  shape: rectangle
+  style.fill: "#ffab91"
+  style.stroke: "#ff6f00"
+}
+
+check_duplicate -> reject_duplicate: "Duplicate Found"
+
+# Enqueue Process
+enqueue: "Add to Priority Queue" {
+  shape: rectangle
+  style.fill: "#b2dfdb"
+  style.stroke: "#00695c"
+  style.stroke-width: 2
+}
+
+check_duplicate -> enqueue: "No Duplicate"
+
+update_metrics: "Update Metrics\n- Total Enqueued\n- Queue Depths\n- Wait Times" {
+  shape: rectangle
+  style.fill: "#d7ccc8"
+  style.stroke: "#5d4037"
+  style.font-size: 11
+}
+
+enqueue -> update_metrics
+
+# Persistence
+persist_check: "Persistence Enabled?" {
+  shape: diamond
+  style.fill: "#f0f4c3"
+  style.stroke: "#827717"
+}
+
+update_metrics -> persist_check
+
+save_to_disk: "Save Queue State\n(JSON to Disk)" {
+  shape: cylinder
+  style.fill: "#dce775"
+  style.stroke: "#689f38"
+}
+
+persist_check -> save_to_disk: "Yes"
+
+# Dequeue Process (Worker Side)
+dequeue_trigger: "Worker Ready to\nProcess Request" {
+  shape: oval
+  style.fill: "#e0f2f1"
+  style.stroke: "#00796b"
+  style.stroke-width: 2
+}
+
+persist_check -> dequeue_trigger: "No"
+save_to_disk -> dequeue_trigger
+
+check_queues: "Check Queues by Priority\n1. HIGH (Status Checks)\n2. MEDIUM (Officers)\n3. LOW (Bulk)\n4. BACKGROUND" {
+  shape: rectangle
+  style.fill: "#e3f2fd"
+  style.stroke: "#1565c0"
+  style.font-size: 11
+}
+
+dequeue_trigger -> check_queues
+
+# Expiration Check
+check_expired: "Check Request Age" {
+  shape: diamond
+  style.fill: "#fce4ec"
+  style.stroke: "#ad1457"
+}
+
+check_queues -> check_expired
+
+remove_expired: "Remove Expired\n(>5 min old)" {
+  shape: rectangle
+  style.fill: "#ffcdd2"
+  style.stroke: "#b71c1c"
+}
+
+check_expired -> remove_expired: "Expired"
+
+# Make API Call
+api_call: "Execute Companies House\nAPI Request" {
+  shape: rectangle
+  style.fill: "#c5e1a5"
+  style.stroke: "#33691e"
+  style.stroke-width: 2
+}
+
+check_expired -> api_call: "Valid"
+
+# API Response
+check_response: "API Response?" {
+  shape: diamond
+  style.fill: "#e0f7fa"
+  style.stroke: "#006064"
+}
+
+api_call -> check_response
+
+# Success Path
+mark_success: "Mark Processed\n- Update Database\n- Record Metrics" {
+  shape: rectangle
+  style.fill: "#a5d6a7"
+  style.stroke: "#1b5e20"
+}
+
+check_response -> mark_success: "200 OK"
+
+# Rate Limit Path
+rate_limited: "Rate Limited\n(429 Response)" {
+  shape: rectangle
+  style.fill: "#ffcc80"
+  style.stroke: "#ef6c00"
+}
+
+check_response -> rate_limited: "429 Too Many"
+
+# Error Path
+api_error: "API Error\n(4xx/5xx)" {
+  shape: rectangle
+  style.fill: "#ffab91"
+  style.stroke: "#d84315"
+}
+
+check_response -> api_error: "Error"
+
+# Retry Logic for Rate Limiting
+apply_backoff: "Apply Exponential\nBackoff" {
+  shape: rectangle
+  style.fill: "#ffe082"
+  style.stroke: "#f9a825"
+  style.font-size: 11
+}
+
+rate_limited -> apply_backoff
+
+lower_priority: "Lower Priority\n(if not already LOW)" {
+  shape: rectangle
+  style.fill: "#fff176"
+  style.stroke: "#f57f17"
+  style.font-size: 11
+}
+
+apply_backoff -> lower_priority
+
+# Retry Decision
+check_retry: "Retry Count < Max?" {
+  shape: diamond
+  style.fill: "#fff3e0"
+  style.stroke: "#e65100"
+}
+
+api_error -> check_retry: "Check Retries"
+lower_priority -> check_retry
+
+# Retry Actions
+increment_retry: "Increment Retry Count" {
+  shape: rectangle
+  style.fill: "#ffcc80"
+  style.stroke: "#e65100"
+  style.font-size: 11
+}
+
+check_retry -> increment_retry: "Yes (<3)"
+
+requeue_request: "Requeue Request" {
+  shape: rectangle
+  style.fill: "#ffe082"
+  style.stroke: "#f57f17"
+}
+
+increment_retry -> requeue_request
+requeue_request -> enqueue: "Retry"
+
+# Final Failure
+mark_failed: "Mark Failed\n- Log Error\n- Alert if HIGH Priority" {
+  shape: rectangle
+  style.fill: "#ef9a9a"
+  style.stroke: "#b71c1c"
+}
+
+check_retry -> mark_failed: "No (Max Retries)"
+
+# End States
+end_success: "Request Complete\nData Saved" {
+  shape: oval
+  style.fill: "#c8e6c9"
+  style.stroke: "#2e7d32"
+  style.stroke-width: 2
+}
+
+end_dropped: "Request Dropped" {
+  shape: oval
+  style.fill: "#ffcdd2"
+  style.stroke: "#c62828"
+  style.stroke-width: 2
+}
+
+end_failed: "Request Failed\nManual Review" {
+  shape: oval
+  style.fill: "#ffccbc"
+  style.stroke: "#d84315"
+  style.stroke-width: 2
+}
+
+mark_success -> end_success
+drop_request -> end_dropped
+reject_duplicate -> end_dropped
+remove_expired -> end_dropped
+mark_failed -> end_failed
+
+# Queue Status Monitor
+monitoring: "Queue Monitoring" {
+  shape: rectangle
+  style.fill: "#f5f5f5"
+  style.stroke: "#424242"
+  style.stroke-dash: 3
+  style.font-size: 11
+  near: center-right
+}
+
+monitoring_details: |md
+  **Real-time Metrics:**
+  - Queue depth per priority
+  - Average wait time
+  - Success/failure rates
+  - Rate limit hit frequency
+  
+  **Alerts Triggered:**
+  - Queue >80% capacity
+  - HIGH priority failures
+  - Excessive 429 responses
+|
+
+# Rate Limiting Context
+rate_limit_box: "API Rate Limits" {
+  shape: rectangle
+  style.fill: "#fff9c4"
+  style.stroke: "#f57f17"
+  style.stroke-dash: 3
+  near: top-right
+}
+
+rate_limit_details: |md
+  **Companies House Limits:**
+  - 600 requests / 5 minutes
+  - ~2 requests per second
+  
+  **Typical Load:**
+  - 1 company = 1 status check
+  - + 10-50 officer fetches
+  - Strike-off burst = 100s of calls
+|
+
+# Priority Examples
+priority_box: "Priority Examples" {
+  shape: rectangle
+  style.fill: "#f3e5f5"
+  style.stroke: "#4a148c"
+  style.stroke-dash: 3
+  near: bottom-right
+}
+
+priority_examples: |md
+  **HIGH:** Company enters strike-off
+  GET /company/12345678
+  
+  **MEDIUM:** Fetch new officers
+  GET /company/12345678/officers
+  
+  **LOW:** Bulk data refresh
+  GET /company/[batch]/filing-history
+  
+  **BACKGROUND:** Old data cleanup
+  DELETE /cache/expired-records
+|
+
+# Decision Logic Explanation
+decision_note: "Key Decision Points" {
+  shape: rectangle
+  style.fill: "#e3f2fd"
+  style.stroke: "#1565c0"
+  style.stroke-dash: 3
+  near: bottom-left
+}
+
+decision_details: |md
+  **1. Capacity Protection:**
+  Only HIGH priority can force enqueue
+  
+  **2. Rate Limit Recovery:**
+  Auto-retry with backoff & lower priority
+  
+  **3. Data Integrity:**
+  Duplicate detection prevents waste
+  
+  **4. Persistence:**
+  Queue survives service restarts
+|

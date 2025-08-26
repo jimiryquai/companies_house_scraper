@@ -1,9 +1,10 @@
 """Priority-based request queue manager for Companies House API rate limiting resilience.
 
-This module implements an intelligent queuing system to handle API requests with different
-priority levels, ensuring critical operations get processed first while preventing
-system overload and memory exhaustion.
+This module implements an intelligent queuing system to handle Companies House REST API
+requests with different priority levels, ensuring real-time strike-off detections get
+processed first while preventing system overload and memory exhaustion during rate limiting.
 """
+
 import asyncio
 import json
 import logging
@@ -19,13 +20,12 @@ logger = logging.getLogger(__name__)
 
 
 class RequestPriority(IntEnum):
-    """Priority levels for API requests."""
+    """Priority levels for Companies House API requests."""
 
-    CRITICAL = 1  # System-critical operations (health checks)
-    HIGH = 2      # Real-time status checks
-    MEDIUM = 3    # Officer fetching for new companies
-    LOW = 4       # Bulk operations and backfills
-    BACKGROUND = 5  # Non-urgent maintenance tasks
+    HIGH = 1  # Real-time company status checks (strike-off detection)
+    MEDIUM = 2  # Officer fetching for newly detected strike-offs
+    LOW = 3  # Bulk operations and backfills
+    BACKGROUND = 4  # Non-urgent maintenance tasks and cleanup
 
 
 @dataclass
@@ -42,7 +42,7 @@ class QueuedRequest:
     max_retries: int = 3
     timeout: float = 30.0
 
-    def __lt__(self, other: 'QueuedRequest') -> bool:
+    def __lt__(self, other: "QueuedRequest") -> bool:
         """Enable priority queue sorting."""
         if self.priority != other.priority:
             return self.priority < other.priority
@@ -68,9 +68,7 @@ class QueueMetrics:
     total_dropped: int = 0
 
     queue_depths: dict[str, int] = field(default_factory=dict)
-    processing_times: deque[float] = field(
-        default_factory=lambda: deque(maxlen=1000)
-    )
+    processing_times: deque[float] = field(default_factory=lambda: deque(maxlen=1000))
     wait_times: deque[float] = field(default_factory=lambda: deque(maxlen=1000))
 
     last_reset: float = field(default_factory=time.time)
@@ -106,7 +104,7 @@ class QueueMetrics:
             "avg_processing_time": self.get_average_processing_time(),
             "avg_wait_time": self.get_average_wait_time(),
             "queue_depths": dict(self.queue_depths),
-            "uptime_seconds": time.time() - self.last_reset
+            "uptime_seconds": time.time() - self.last_reset,
         }
 
 
@@ -118,7 +116,7 @@ class PriorityQueueManager:
         max_queue_size: int = 10000,
         max_memory_mb: int = 100,
         persistence_path: Optional[Path] = None,
-        enable_monitoring: bool = True
+        enable_monitoring: bool = True,
     ):
         """Initialize the queue manager.
 
@@ -151,11 +149,7 @@ class PriorityQueueManager:
         if self.persistence_path and self.persistence_path.exists():
             self._load_persisted_queues()
 
-    async def enqueue(
-        self,
-        request: QueuedRequest,
-        force: bool = False
-    ) -> bool:
+    async def enqueue(self, request: QueuedRequest, force: bool = False) -> bool:
         """Add a request to the appropriate priority queue.
 
         Args:
@@ -189,8 +183,7 @@ class PriorityQueueManager:
             self._update_queue_depths()
 
             logger.debug(
-                f"Enqueued request {request.request_id} "
-                f"with priority {request.priority.name}"
+                f"Enqueued request {request.request_id} with priority {request.priority.name}"
             )
 
             # Persist if enabled
@@ -253,11 +246,7 @@ class PriorityQueueManager:
 
         return None
 
-    async def requeue(
-        self,
-        request: QueuedRequest,
-        increment_retry: bool = True
-    ) -> bool:
+    async def requeue(self, request: QueuedRequest, increment_retry: bool = True) -> bool:
         """Requeue a failed request with updated retry count.
 
         Args:
@@ -272,8 +261,7 @@ class PriorityQueueManager:
 
         if request.retry_count > request.max_retries:
             logger.warning(
-                f"Request {request.request_id} exceeded max retries "
-                f"({request.max_retries})"
+                f"Request {request.request_id} exceeded max retries ({request.max_retries})"
             )
             self.metrics.total_failed += 1
             return False
@@ -284,11 +272,7 @@ class PriorityQueueManager:
 
         return await self.enqueue(request, force=True)
 
-    def mark_processed(
-        self,
-        request: QueuedRequest,
-        processing_time: float
-    ) -> None:
+    def mark_processed(self, request: QueuedRequest, processing_time: float) -> None:
         """Mark a request as successfully processed.
 
         Args:
@@ -298,9 +282,7 @@ class PriorityQueueManager:
         self.metrics.total_processed += 1
         self.metrics.processing_times.append(processing_time)
 
-        logger.debug(
-            f"Processed request {request.request_id} in {processing_time:.2f}s"
-        )
+        logger.debug(f"Processed request {request.request_id} in {processing_time:.2f}s")
 
     def mark_failed(self, request: QueuedRequest) -> None:
         """Mark a request as failed.
@@ -323,22 +305,19 @@ class PriorityQueueManager:
             "max_capacity": self.max_queue_size,
             "utilization": total_queued / self.max_queue_size,
             "queues": {},
-            "metrics": self.metrics.to_dict() if self.enable_monitoring else {}
+            "metrics": self.metrics.to_dict() if self.enable_monitoring else {},
         }
 
         for priority in RequestPriority:
             queue = self.queues[priority]
             status["queues"][priority.name] = {
                 "depth": len(queue),
-                "oldest_age": queue[0].age_seconds() if queue else 0
+                "oldest_age": queue[0].age_seconds() if queue else 0,
             }
 
         return status
 
-    async def clear_queue(
-        self,
-        priority: Optional[RequestPriority] = None
-    ) -> int:
+    async def clear_queue(self, priority: Optional[RequestPriority] = None) -> int:
         """Clear requests from queue(s).
 
         Args:
@@ -386,9 +365,7 @@ class PriorityQueueManager:
             return
 
         for priority in RequestPriority:
-            self.metrics.queue_depths[priority.name] = len(
-                self.queues[priority]
-            )
+            self.metrics.queue_depths[priority.name] = len(self.queues[priority])
 
     async def _persist_queues(self) -> None:
         """Persist current queue state to disk."""
@@ -397,10 +374,7 @@ class PriorityQueueManager:
 
         try:
             # Prepare queue data for serialization
-            queue_data: dict[str, Any] = {
-                "timestamp": datetime.now().isoformat(),
-                "queues": {}
-            }
+            queue_data: dict[str, Any] = {"timestamp": datetime.now().isoformat(), "queues": {}}
 
             for priority in RequestPriority:
                 queue = self.queues[priority]
@@ -413,7 +387,7 @@ class PriorityQueueManager:
                         "created_at": req.created_at,
                         "retry_count": req.retry_count,
                         "max_retries": req.max_retries,
-                        "timeout": req.timeout
+                        "timeout": req.timeout,
                     }
                     for req in queue
                 ]
@@ -424,8 +398,7 @@ class PriorityQueueManager:
             temp_path.replace(self.persistence_path)
 
             logger.debug(
-                f"Persisted {self._get_total_queue_size()} requests to "
-                f"{self.persistence_path}"
+                f"Persisted {self._get_total_queue_size()} requests to {self.persistence_path}"
             )
 
         except Exception as e:
@@ -456,7 +429,7 @@ class PriorityQueueManager:
                         created_at=req_data["created_at"],
                         retry_count=req_data.get("retry_count", 0),
                         max_retries=req_data.get("max_retries", 3),
-                        timeout=req_data.get("timeout", 30.0)
+                        timeout=req_data.get("timeout", 30.0),
                     )
 
                     # Skip expired requests
@@ -466,9 +439,7 @@ class PriorityQueueManager:
                         loaded_count += 1
 
             self._update_queue_depths()
-            logger.info(
-                f"Loaded {loaded_count} requests from {self.persistence_path}"
-            )
+            logger.info(f"Loaded {loaded_count} requests from {self.persistence_path}")
 
         except Exception as e:
             logger.error(f"Failed to load persisted queues: {e}")

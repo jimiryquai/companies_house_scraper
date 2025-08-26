@@ -238,3 +238,82 @@ The hybrid approach maximizes both timeliness and accuracy by using each API for
 - Additional complexity in error handling for two APIs
 - Rate limit considerations for high-volume periods
 - Requires careful synchronization between streaming and REST responses
+
+## 2025-08-18: Rate Limiting Resilience Architecture
+
+**ID:** DEC-006
+**Status:** Planned
+**Category:** Risk Mitigation & Enterprise Architecture
+**Stakeholders:** Development Team, Operations Team
+
+### Decision
+
+Implement enterprise-grade rate limiting resilience using a phased approach: (1) Intelligent Queuing System, (2) Circuit Breaker Pattern, (3) Adaptive Rate Limiting. This addresses potential system failures during high-volume periods when streaming events could overwhelm REST API rate limits.
+
+### Context
+
+Current rate limiting uses simple delays (0.6s per REST call) to prevent 403 errors during normal operations. However, extreme scenarios (economic downturns, regulatory changes, mass company failures) could generate streaming event volumes that exceed this approach's capacity. The system needs enterprise-grade resilience to handle 10x normal loads without data loss or system failures.
+
+### Problem Scenarios
+
+1. **Economic Crisis**: Hundreds of companies entering strike-off simultaneously
+2. **Regulatory Deadlines**: Mass filings creating event surges
+3. **Sectoral Collapse**: Industry-wide distress events
+4. **API Changes**: Companies House rate limit modifications
+
+### Alternatives Considered
+
+1. **Status Quo (Simple Delays)**
+   - Pros: Working for normal loads, simple implementation
+   - Cons: Fails under extreme loads, no graceful degradation, data loss risk
+
+2. **Higher Rate Limits/Multiple Keys**
+   - Pros: More API capacity
+   - Cons: Still finite limits, doesn't address fundamental scalability, cost implications
+
+3. **Enterprise Resilience Patterns (Selected)**
+   - Pros: Proven patterns, graceful degradation, no data loss, operational visibility
+   - Cons: Implementation complexity, additional infrastructure
+
+### Rationale
+
+Following enterprise architecture principles (Reliability → Observability → Performance → Optimization), this approach ensures business continuity during extreme conditions. The phased implementation allows incremental development based on operational data, minimizing over-engineering while providing robust failure handling.
+
+### Implementation Phases
+
+**Phase 1: Intelligent Queuing (Foundation)**
+- Priority-based request queues separate critical status checks from officer fetching
+- Queue persistence ensures no data loss during service restarts
+- Metrics provide operational visibility into system load
+
+**Phase 2: Circuit Breaker (Reliability)**
+- Automatic failure detection and graceful degradation
+- Auto-recovery when conditions improve
+- Degraded mode stores events for later processing
+
+**Phase 3: Adaptive Rate Limiting (Optimization)**
+- Dynamic adjustment based on API response patterns
+- Self-tuning algorithms optimize throughput
+- Coordinated rate limiting across multiple services
+
+### Consequences
+
+**Positive:**
+- System remains operational during extreme business conditions
+- Zero data loss even during API rate limit violations
+- Clear operational visibility into system performance and bottlenecks
+- Automatic recovery without manual intervention
+- Foundation for future scaling requirements
+
+**Negative:**
+- Increased implementation and maintenance complexity
+- Additional infrastructure dependencies (queuing, metrics)
+- More complex debugging during failure scenarios
+- Potential performance overhead during normal operations
+
+### Success Criteria
+
+- 99.9% uptime during high-volume periods
+- Process 10x normal streaming load without data loss
+- Automatic recovery from rate limit violations within 5 minutes
+- Real-time operational metrics for queue depth and processing rates

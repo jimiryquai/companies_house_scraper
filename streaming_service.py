@@ -145,6 +145,10 @@ class StreamingService:
         try:
             self.logger.debug(f"Fetching detailed company info for {company_number}")
 
+            # TIME-BASED RATE LIMITING: Adjust delays based on UK business hours
+            delay = self._get_adaptive_delay()
+            await asyncio.sleep(delay)
+
             # Use existing REST API to get detailed company info
             import aiohttp
 
@@ -205,6 +209,32 @@ class StreamingService:
         except Exception as e:
             self.logger.error(f"Error fetching detailed company info for {company_number}: {e}")
             self.stats["errors"] += 1
+
+    def _get_adaptive_delay(self) -> float:
+        """Get adaptive delay based on UK business hours and officer import status.
+
+        Returns:
+            Delay in seconds between REST API calls
+        """
+        import datetime
+
+        # Get current UK time
+        uk_time = datetime.datetime.now()  # Assuming server runs in UK timezone
+        hour = uk_time.hour
+
+        # UK Business Hours: 9 AM - 5 PM (high competition with officer import)
+        if 9 <= hour < 17:
+            # BUSINESS HOURS: Much longer delay to leave capacity for officer import
+            # 2 seconds = 30 calls/min = 150 calls/5min (leaves 450 calls for officer import)
+            delay = 2.0
+            self.logger.debug(f"Business hours (hour {hour}): Using {delay}s delay")
+        else:
+            # OFF-HOURS: Shorter delay since officer import may be paused
+            # 1 second = 60 calls/min = 300 calls/5min (moderate usage)
+            delay = 1.0
+            self.logger.debug(f"Off hours (hour {hour}): Using {delay}s delay")
+
+        return delay
 
     def _is_strike_off_status(self, status: Optional[str]) -> bool:
         """Check if a status indicates strike-off.

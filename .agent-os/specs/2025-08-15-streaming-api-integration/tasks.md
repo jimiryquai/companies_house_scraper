@@ -3,8 +3,8 @@
 These are the tasks to be completed for the spec detailed in @.agent-os/specs/2025-08-15-streaming-api-integration/spec.md
 
 > Created: 2025-08-15
-> Status: Core Implementation Complete - Deployment Phase
-> Updated: 2025-08-16 - Removed officer streaming integration (inefficient), focus on company monitoring only
+> Status: Ready for State Manager Integration (Task 6.2)
+> Updated: 2025-08-26 - Queue system completed, Company State Manager tasks merged into Task 6.2 for unified implementation
 
 ## Tasks
 
@@ -154,7 +154,7 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 
 ### Future Enhancement: Enterprise Rate Limiting Resilience
 
-**Task 6.1: Intelligent Queuing System (Foundation Phase)**
+**Task 6.1: Intelligent Queuing System (Foundation Phase) - COMPLETED**
 - [x] Design priority-based request queue architecture
 - [x] Implement high-priority queue for real-time status checks
 - [x] Implement low-priority queue for officer fetching operations
@@ -162,44 +162,85 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 - [x] Implement configurable queue limits to prevent memory exhaustion
 - [x] Add queue persistence for service restart resilience
 - [x] Write comprehensive tests for queue operations and edge cases
+- [x] **COMPLETED**: Core queue manager implemented in `src/streaming/queue_manager.py`
 
-**Task 6.2: Circuit Breaker Pattern (Reliability Phase)**
-- [ ] Implement API circuit breaker for graceful failure handling
-- [ ] Add automatic failure detection and state transitions
-- [ ] Implement auto-recovery mechanisms when conditions improve
-- [ ] Create degraded mode for storing events when APIs unavailable
-- [ ] Add circuit breaker metrics and operational alerting
-- [ ] Write tests for all circuit breaker states and transitions
-- [ ] Document operational procedures for circuit breaker management
+**Task 6.2: Company Processing State Manager Integration**
 
-**Task 6.3: Adaptive Rate Limiting (Optimization Phase)**
-- [ ] Implement dynamic rate limit adjustment based on API responses
-- [ ] Add exponential backoff for handling 429 rate limit responses
-- [ ] Create self-tuning algorithms that learn optimal request patterns
-- [ ] Implement rate limit coordination across multiple services
-- [ ] Add real-time rate limiting metrics and dashboards
-- [ ] Write comprehensive load tests for extreme volume scenarios
-- [ ] Document performance tuning guidelines for operations team
+**Subtask 6.2.1: Database Schema and Migration**
+- [ ] 6.2.1.1 Write tests for database schema creation and migration
+- [ ] 6.2.1.2 Create database migration script for company_processing_state and api_rate_limit_log tables
+- [ ] 6.2.1.3 Implement database indexes for performance optimization and rate limit tracking
+- [ ] 6.2.1.4 Add database version tracking and migration runner
+- [ ] 6.2.1.5 Populate existing strike-off companies with 'completed' status
+- [ ] 6.2.1.6 Create emergency safeguard triggers to prevent direct API calls
+- [ ] 6.2.1.7 Verify all database tests pass
 
-**Acceptance Criteria for Rate Limiting Resilience:**
+**Subtask 6.2.2: Company State Manager Core**
+- [ ] 6.2.2.1 Write tests for CompanyStateManager class interface and state transitions
+- [ ] 6.2.2.2 Implement ProcessingState enum with queue-aware states (detected, status_queued, officers_queued, etc.)
+- [ ] 6.2.2.3 Create CompanyStateManager class with async state management and queue integration
+- [ ] 6.2.2.4 Implement thread-safe state transitions using asyncio locks
+- [ ] 6.2.2.5 Add database persistence layer for state tracking with queue request IDs
+- [ ] 6.2.2.6 Add rate limit monitoring and 429 response tracking
+- [ ] 6.2.2.7 Verify all core state management tests pass
 
-**Reliability Requirements:**
-- [ ] System maintains 99.9% uptime during high-volume periods
-- [ ] Zero data loss during API rate limit violations
-- [ ] Automatic recovery from failures within 5 minutes
-- [ ] Graceful degradation without service crashes
+**Subtask 6.2.3: Queue-Only API Architecture Implementation**
+- [ ] 6.2.3.1 Write tests for queue-only API architecture
+- [ ] 6.2.3.2 Fix _is_strike_off_status() method to use exact string match for "active-proposal-to-strike-off"
+- [ ] 6.2.3.3 REMOVE all direct API calls from streaming_service.py (make it queue-only)
+- [ ] 6.2.3.4 Integrate StateManager with PriorityQueueManager for ALL API requests
+- [ ] 6.2.3.5 Implement queue request creation for company status checks (HIGH priority)
+- [ ] 6.2.3.6 Implement queue request creation for officer fetches (MEDIUM priority)
+- [ ] 6.2.3.7 Add queue response processing and state transitions
+- [ ] 6.2.3.8 Verify zero direct API calls remain in streaming service
+- [ ] 6.2.3.9 Verify all integration tests pass
 
-**Performance Requirements:**
-- [ ] Process 10x normal streaming load without system failures
-- [ ] Queue processing maintains real-time responsiveness for critical events
-- [ ] Memory usage remains stable under extreme load conditions
-- [ ] Response times stay within acceptable bounds during peak periods
+**Subtask 6.2.4: Bulletproof Error Handling and Rate Limit Compliance**
+- [ ] 6.2.4.1 Write tests for retry logic and exponential backoff with queue integration
+- [ ] 6.2.4.2 Implement retry engine with queue-based retry scheduling and priority degradation
+- [ ] 6.2.4.3 Add specific 429 response handling with automatic queue throttling
+- [ ] 6.2.4.4 Implement maximum retry limits with graceful failure handling
+- [ ] 6.2.4.5 Add emergency shutdown logic for repeated API violations
+- [ ] 6.2.4.6 Implement rate limit violation tracking and alerting
+- [ ] 6.2.4.7 Add comprehensive error logging for cloud deployment monitoring
+- [ ] 6.2.4.8 Create recovery procedures for service restart after rate limit issues
+- [ ] 6.2.4.9 Verify all error handling tests pass including high-volume scenarios
 
-**Operational Requirements:**
-- [ ] Real-time visibility into queue depth and processing rates
-- [ ] Automated alerting for circuit breaker state changes
-- [ ] Clear operational runbooks for managing high-volume scenarios
-- [ ] Metrics dashboards for monitoring system health and performance
+**Subtask 6.2.5: Cloud Operations Monitoring and Autonomous Operation**
+- [ ] 6.2.5.1 Write tests for metrics collection and cloud operations monitoring
+- [ ] 6.2.5.2 Implement real-time rate limit usage monitoring (API calls per 5min window)
+- [ ] 6.2.5.3 Add metrics for queue depth, processing rates, and API compliance
+- [ ] 6.2.5.4 Create autonomous operation dashboard for cloud deployment status
+- [ ] 6.2.5.5 Implement alerting for rate limit violations and processing failures
+- [ ] 6.2.5.6 Add comprehensive logging for unattended operation diagnostics
+- [ ] 6.2.5.7 Create health check endpoints for cloud platform integration
+- [ ] 6.2.5.8 Add automated recovery status reporting for operational visibility
+- [ ] 6.2.5.9 Verify all monitoring tests pass including simulated high-volume streaming events
+
+**Task 6.3: Spec Merge Complete**
+- [x] **MERGED**: Company Processing State Manager tasks integrated into Task 6.2 above
+- [x] **DATABASE SCHEMA**: Available in sub-specs/company-state-manager-schema.md
+- [x] **FOCUS**: Task 6.2 now contains complete implementation path for bulletproof cloud deployment
+
+**Acceptance Criteria for Bulletproof Cloud Deployment:**
+
+**API Safety Requirements (CRITICAL):**
+- [ ] ZERO direct API calls from streaming service (queue-only architecture)
+- [ ] Strict enforcement of 600 calls/5min rate limit to prevent API bans
+- [ ] Automatic 429 response handling with queue throttling
+- [ ] Emergency shutdown protection for repeated API violations
+
+**State Management Requirements:**
+- [ ] Complete company processing state tracking from detection to completion
+- [ ] Zero data loss during high-volume streaming events (700+ companies)
+- [ ] Automatic retry with exponential backoff and priority degradation
+- [ ] Database persistence for processing state and rate limit compliance
+
+**Cloud Operations Requirements:**
+- [ ] Autonomous operation without manual intervention
+- [ ] Real-time monitoring of queue depth and processing rates
+- [ ] Comprehensive logging for unattended cloud deployment
+- [ ] Health check endpoints for cloud platform integration
 
 ### Acceptance Criteria
 

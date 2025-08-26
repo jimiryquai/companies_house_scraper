@@ -100,3 +100,101 @@
 - Persistent disk setup for SQLite database
 - UI/UX design for web interface
 - Security and authentication implementation
+
+## Phase 4: Future Enhancements (Speculative)
+
+**Goal:** Additional features based on user feedback and business needs
+**Status:** 🔮 Future/Speculative
+
+### Phase 4.1: API & Observability Layer
+
+**Priority:** Low (Nice-to-have)
+**Use Cases:** Manual testing, system monitoring, third-party integrations
+
+#### Features
+
+- [ ] REST API server - Query database and trigger processes programmatically `L`
+  - GET /api/companies - List all strike-off companies
+  - GET /api/companies/{id} - Get company details
+  - GET /api/companies/{id}/officers - Get company officers
+  - POST /api/companies/{id}/import-officers - Trigger officer import
+  - GET /api/streaming/status - Check streaming service health
+  - POST /api/streaming/process/{id} - Manually trigger company processing
+  - GET /api/stats - Database and processing statistics
+
+- [ ] Monitoring dashboard - Visual interface for system health and metrics `M`
+  - Real-time streaming status
+  - Processing queue visualization
+  - Error logs and alerts
+  - Database statistics
+
+- [ ] Webhook integrations - Push notifications for key events `S`
+  - New strike-off companies detected
+  - Companies leaving strike-off status
+  - Processing errors or failures
+
+- [ ] Postman collection - Pre-configured API testing suite `S`
+
+#### Dependencies
+
+- FastAPI or Flask framework
+- API authentication strategy
+- Dashboard framework (React/Vue/Streamlit)
+- Webhook delivery infrastructure
+
+#### Rationale
+
+While the current system operates autonomously without requiring external API access, an API layer would provide:
+- Easier debugging and manual testing capabilities
+- Foundation for future UI development
+- Integration points for external systems
+- Enhanced observability for production monitoring
+
+This remains low priority as the core system functions well without it, and development efforts are better focused on Apollo.io and GoHighLevel integrations which provide direct business value.
+
+### Phase 4.2: Enterprise-Grade Rate Limiting Resilience
+
+**Priority:** Medium (Risk Mitigation)
+**Use Cases:** High-volume periods, economic downturns, mass company failures
+
+#### Problem Statement
+
+During extreme scenarios (economic crisis, regulatory changes, sectoral collapses), streaming events could surge beyond current rate limiting capacity, potentially overwhelming the REST API rate limits (600 requests per 5 minutes) and causing system failures.
+
+#### Features
+
+**Phase 1: Intelligent Queuing System (Foundation)**
+- [ ] Priority-based request queue - High priority for status checks, low priority for officer fetching `L`
+- [ ] Queue monitoring and metrics - Track queue depth, processing rate, wait times `S`
+- [ ] Configurable queue limits - Prevent memory exhaustion during extreme load `S`
+- [ ] Queue persistence - Survive service restarts without losing requests `M`
+
+**Phase 2: Circuit Breaker Pattern (Reliability)**
+- [ ] API circuit breaker implementation - Fail gracefully when overwhelmed `M`
+- [ ] Auto-recovery mechanisms - Detect when conditions improve and resume `M`
+- [ ] Degraded mode operations - Store events for later processing when APIs unavailable `L`
+- [ ] Circuit breaker metrics and alerting - Operational visibility into system state `S`
+
+**Phase 3: Adaptive Rate Limiting (Optimization)**
+- [ ] Dynamic rate limit adjustment - Respond to API response times and error rates `L`
+- [ ] Exponential backoff for 429 responses - Handle rate limit exceeded scenarios `M`
+- [ ] Self-tuning algorithms - Learn optimal request patterns over time `L`
+- [ ] Rate limit coordination - Smart distribution across multiple services `M`
+
+#### Dependencies
+
+- Queue infrastructure (Redis or in-memory)
+- Metrics collection system
+- Circuit breaker library (e.g., pybreaker)
+- Rate limiting algorithms implementation
+
+#### Success Metrics
+
+- **Reliability**: 99.9% uptime during high-volume periods
+- **Performance**: Process 10x normal load without data loss
+- **Recovery**: Automatic recovery from rate limit violations within 5 minutes
+- **Visibility**: Real-time monitoring of queue depth and processing rates
+
+#### Rationale
+
+Following enterprise architecture patterns (Reliability → Observability → Performance → Optimization), this approach ensures the system remains operational during extreme business conditions while providing clear operational visibility. The phased approach allows incremental implementation based on actual operational data and business needs.
