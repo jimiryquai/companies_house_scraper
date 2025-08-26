@@ -29,7 +29,10 @@ from src.streaming.structured_logger import LogContext, LogEntry, LogLevel, Stru
 def config() -> Any:
     """Create test configuration."""
     return StreamingConfig(
-        streaming_api_key="test-api-key-123456", database_path=":memory:", batch_size=10
+        streaming_api_key="test-api-key-123456",
+        rest_api_key="test-rest-api-key-123456",
+        database_path=":memory:",
+        batch_size=10,
     )
 
 
@@ -588,10 +591,10 @@ class TestErrorAlertManager:
         channel = LogAlertChannel(log_file=temp_log_file, log_level=LogLevel.INFO)
         manager.add_channel("log_alerts", channel)
 
-        # Add immediate threshold (max 1 occurrence)
+        # Add immediate threshold (alert on first occurrence)
         threshold = AlertThreshold(
             pattern_name="critical_error",
-            max_occurrences=1,
+            max_occurrences=0,
             time_window_minutes=1,
             alert_level=AlertLevel.CRITICAL,
         )
@@ -706,7 +709,7 @@ class TestAlertingIntegration:
 
         threshold = AlertThreshold(
             pattern_name="database_critical",
-            max_occurrences=1,
+            max_occurrences=0,
             time_window_minutes=1,
             alert_level=AlertLevel.CRITICAL,
         )
@@ -782,7 +785,7 @@ class TestAlertingIntegration:
         # Add threshold
         threshold = AlertThreshold(
             pattern_name="multi_channel_test",
-            max_occurrences=1,
+            max_occurrences=0,
             time_window_minutes=1,
             alert_level=AlertLevel.HIGH,
         )

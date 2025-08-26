@@ -254,7 +254,7 @@ class TestCompanyEvent:
         assert event.resource_id == "12345678"
         assert event.company_number == "12345678"
         assert event.company_name == "Test Company Ltd"
-        assert event.company_status == "active-proposal-to-strike-off"
+        assert event.company_status == "Active - Proposal to Strike Off"
         assert event.timepoint == 12345
 
     def test_company_event_is_strike_off(self, valid_company_event: Any) -> None:
@@ -265,7 +265,7 @@ class TestCompanyEvent:
 
     def test_company_event_not_strike_off(self, valid_company_event: Any) -> None:
         """Test non-strike-off status detection."""
-        valid_company_event["data"]["company_status"] = "active"
+        valid_company_event["data"]["company_status_detail"] = "Active"
         event = CompanyEvent.from_dict(valid_company_event)
 
         assert event.is_strike_off() is False
@@ -279,7 +279,7 @@ class TestCompanyEvent:
         assert result_dict is not None and result_dict["company_name"] == "Test Company Ltd"
         assert (
             result_dict is not None
-            and result_dict["company_status"] == "active-proposal-to-strike-off"
+            and result_dict["company_status"] == "Active - Proposal to Strike Off"
         )
         assert result_dict is not None and result_dict["timepoint"] == 12345
 

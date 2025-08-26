@@ -235,6 +235,135 @@ class DatabaseMigration:
         finally:
             conn.close()
 
+    def migration_003_create_state_management_tables(self) -> None:
+        """Migration 003: Create Company Processing State Manager tables.
+
+        Creates bulletproof rate limiting and state management tables for
+        autonomous cloud deployment with zero API violations:
+        - company_processing_state: Tracks processing status for each company
+        - api_rate_limit_log: Logs all API calls for rate limit monitoring
+        """
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Create company processing state table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS company_processing_state (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    company_number TEXT NOT NULL,
+                    processing_state TEXT NOT NULL DEFAULT 'detected',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status_queued_at TIMESTAMP NULL,
+                    status_fetched_at TIMESTAMP NULL,
+                    officers_queued_at TIMESTAMP NULL,
+                    officers_fetched_at TIMESTAMP NULL,
+                    completed_at TIMESTAMP NULL,
+                    status_retry_count INTEGER DEFAULT 0,
+                    officers_retry_count INTEGER DEFAULT 0,
+                    status_request_id TEXT NULL,
+                    officers_request_id TEXT NULL,
+                    last_error TEXT NULL,
+                    last_error_at TIMESTAMP NULL,
+                    last_429_response_at TIMESTAMP NULL,
+                    rate_limit_violations INTEGER DEFAULT 0,
+                    FOREIGN KEY (company_number) REFERENCES companies(company_number),
+                    UNIQUE(company_number)
+                )
+            """)
+            logger.info("Created company_processing_state table")
+
+            # Create API rate limit log table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS api_rate_limit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    request_type TEXT NOT NULL,
+                    response_status INTEGER NOT NULL,
+                    company_number TEXT NULL,
+                    request_id TEXT NULL,
+                    processing_time_ms INTEGER NULL
+                )
+            """)
+            logger.info("Created api_rate_limit_log table")
+
+            # Create performance indexes for company_processing_state
+            indexes = [
+                (
+                    "idx_company_processing_state_status",
+                    "company_processing_state(processing_state)",
+                ),
+                (
+                    "idx_company_processing_state_updated",
+                    "company_processing_state(updated_at)",
+                ),
+                (
+                    "idx_company_processing_state_company",
+                    "company_processing_state(company_number)",
+                ),
+                (
+                    "idx_company_processing_state_requests",
+                    "company_processing_state(status_request_id, officers_request_id)",
+                ),
+                (
+                    "idx_company_processing_state_violations",
+                    "company_processing_state(rate_limit_violations, last_429_response_at)",
+                ),
+                ("idx_api_rate_limit_timestamp", "api_rate_limit_log(timestamp)"),
+                ("idx_api_rate_limit_status", "api_rate_limit_log(response_status)"),
+            ]
+
+            for index_name, index_columns in indexes:
+                cursor.execute(f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_columns}")
+                logger.info(f"Created index {index_name}")
+
+            conn.commit()
+            logger.info("Migration 003 completed: Created state management tables")
+
+        except sqlite3.Error as e:
+            logger.error(f"Migration 003 failed: {e}")
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def migration_004_add_company_status_detail(self) -> None:
+        """Migration 004: Add company_status_detail column to companies table.
+
+        This column is essential for strike-off detection as it contains
+        detailed status information like "Active - Proposal to Strike Off".
+        """
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Add company_status_detail column
+            try:
+                cursor.execute("ALTER TABLE companies ADD COLUMN company_status_detail TEXT")
+                logger.info("Added company_status_detail column to companies table")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" in str(e).lower():
+                    logger.info("Column company_status_detail already exists, skipping")
+                else:
+                    raise
+
+            # Create index for efficient strike-off queries
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_companies_status_detail "
+                "ON companies(company_status_detail)"
+            )
+
+            conn.commit()
+            logger.info("Migration 004 completed: Added company_status_detail column")
+
+        except sqlite3.Error as e:
+            logger.error(f"Migration 004 failed: {e}")
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def run_migrations(self) -> None:
         """Run all pending migrations."""
         current_version = self.get_schema_version()
@@ -243,6 +372,8 @@ class DatabaseMigration:
         migrations = [
             (1, self.migration_001_create_base_tables),
             (2, self.migration_002_add_streaming_metadata),
+            (3, self.migration_003_create_state_management_tables),
+            (4, self.migration_004_add_company_status_detail),
         ]
 
         for version, migration_func in migrations:

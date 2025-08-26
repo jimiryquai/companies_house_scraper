@@ -13,15 +13,14 @@ import sys
 from datetime import datetime
 from typing import Any, Optional
 
-# Import existing officer import functionality
-from officer_import import get_company_officers, load_config, save_officers_to_db
-
 # Import streaming components
 from src.streaming import (
     CompanyEvent,
     ErrorAlertManager,
     EventProcessor,
     HealthMonitor,
+    PriorityQueueManager,
+    RequestPriority,
     StreamingClient,
     StreamingConfig,
     StreamingDatabase,
@@ -43,10 +42,10 @@ class StreamingService:
         self.database: Optional[StreamingDatabase] = None
         self.health_monitor: Optional[HealthMonitor] = None
         self.error_alerting: Optional[ErrorAlertManager] = None
+        self.queue_manager: Optional[PriorityQueueManager] = None
 
-        # Officer import configuration
-        self.officer_config = load_config()
-        self.api_key = self.officer_config.get("api", {}).get("key", "")
+        # API keys
+        self.api_key = config.rest_api_key  # For REST API calls
 
         # Setup logging
         self.logger = self._setup_logging()
@@ -98,6 +97,9 @@ class StreamingService:
             self.event_processor.register_event_handler(
                 "company-profile", self._handle_company_event
             )
+
+            # Initialize queue manager for rate-limited API calls
+            self.queue_manager = PriorityQueueManager()
 
             # Initialize health monitor (will be set up after client is ready)
             self.health_monitor = None
@@ -168,9 +170,7 @@ class StreamingService:
             }
 
             # Fetch company profile from REST API
-            base_url = self.officer_config.get("api_endpoints", {}).get(
-                "base_url", "https://api.company-information.service.gov.uk"
-            )
+            base_url = "https://api.company-information.service.gov.uk"
             url = f"{base_url}/company/{company_number}"
 
             async with (
@@ -316,36 +316,64 @@ class StreamingService:
             self.stats["errors"] += 1
 
     async def _fetch_and_store_officers(self, company_number: str) -> None:
-        """Fetch and store officers for a company using existing workflow.
+        """Queue officers request using the new queue-based architecture.
 
         Args:
             company_number: Company number to fetch officers for
         """
-        if not self.api_key:
-            self.logger.error("API key not available for officer fetching")
+        if not self.queue_manager:
+            self.logger.error("Queue manager not initialized")
             return
 
         try:
-            self.logger.info(f"Fetching officers for company {company_number}")
+            self.logger.info(f"Queuing officers request for company {company_number}")
 
-            # Use existing officer import function
-            officers_data = get_company_officers(company_number, self.api_key)
+            # Create company processing state record
+            if self.database:
+                async with self.database.manager.get_connection() as conn:
+                    # Insert or update company processing state
+                    await conn.execute(
+                        """
+                        INSERT OR REPLACE INTO company_processing_state
+                        (company_number, processing_state, created_at, updated_at, officers_queued_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    """,
+                        (
+                            company_number,
+                            "officers_queued",
+                            datetime.now().isoformat(),
+                            datetime.now().isoformat(),
+                            datetime.now().isoformat(),
+                        ),
+                    )
+                    await conn.commit()
 
-            if officers_data:
-                # Save officers using existing function
-                inserted_count = save_officers_to_db(company_number, officers_data)
-                self.stats["officers_imported"] = (
-                    self.stats.get("officers_imported", 0) + inserted_count
-                )
+            # Queue the officers request with HIGH priority (strike-off detection)
+            from src.streaming.queue_manager import QueuedRequest
 
+            request = QueuedRequest(
+                request_id=f"officers_{company_number}_{int(datetime.now().timestamp())}",
+                priority=RequestPriority.HIGH,
+                endpoint=f"/company/{company_number}/officers",
+                params={
+                    "company_number": company_number,
+                    "reason": "strike_off_detection",
+                    "queued_at": datetime.now().isoformat(),
+                },
+            )
+            success = await self.queue_manager.enqueue(request)
+
+            if success:
                 self.logger.info(
-                    f"Successfully imported {inserted_count} officers for company {company_number}"
+                    f"Successfully queued officers request for company {company_number}"
                 )
+                self.stats["companies_processed"] += 1
             else:
-                self.logger.info(f"No officers found for company {company_number}")
+                self.logger.error(f"Failed to queue officers request for company {company_number}")
+                self.stats["errors"] += 1
 
         except Exception as e:
-            self.logger.error(f"Error fetching officers for {company_number}: {e}")
+            self.logger.error(f"Error queuing officers request for {company_number}: {e}")
             self.stats["errors"] += 1
 
     async def _cleanup_company_records(self, company_number: str) -> None:

@@ -64,9 +64,9 @@ CREATE INDEX idx_api_rate_limit_status ON api_rate_limit_log(response_status);
 - **status_queued** - Company status check request queued in PriorityQueueManager
 - **status_fetched** - Company status retrieved via REST API through queue
 - **strike_off_confirmed** - company_status_detail == "active-proposal-to-strike-off" confirmed
-- **officers_queued** - Officer fetch request queued in PriorityQueueManager  
+- **officers_queued** - Officer fetch request queued in PriorityQueueManager
 - **officers_fetched** - Officer data successfully retrieved and saved through queue
-- **completed** - All processing steps finished successfully  
+- **completed** - All processing steps finished successfully
 - **failed** - Processing failed after maximum retry attempts (with rate limit compliance)
 
 ## Critical Requirements

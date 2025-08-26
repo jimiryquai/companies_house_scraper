@@ -201,35 +201,32 @@ class StreamingClient:
         logger.info("Disconnected from streaming API")
 
     async def _health_check(self) -> None:
-        """Perform health check against the streaming API."""
+        """Perform internal health check of streaming connection."""
+        logger.debug("Performing internal health check")
+
+        # Check if session is initialized
         if not self.session:
-            raise RuntimeError("Session not initialized")
+            logger.warning("Health check failed: Session not initialized")
+            return
 
-        url = urljoin(self.config.api_base_url, "/companies")
+        # Check if we're connected
+        if not self.is_connected:
+            logger.warning("Health check failed: Not connected to streaming API")
+            return
 
-        try:
-            await self._wait_for_rate_limit()
-            # Use GET with short timeout for health check
-            async with self.session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
-                if response.status == 200:
-                    logger.debug("Health check passed")
-                elif response.status == 429:
-                    # Rate limit exceeded
-                    retry_after = response.headers.get("Retry-After", "60")
-                    logger.warning(f"Rate limit exceeded. Retry after {retry_after} seconds")
-                    raise ClientError(f"Health check failed with status {response.status}")
-                elif response.status in [401, 403]:
-                    # Authentication/Authorization errors
-                    logger.error("Authentication failed - check API key")
-                    raise ClientError(f"Health check failed with status {response.status}")
-                else:
-                    raise ClientError(f"Health check failed with status {response.status}")
-        except (ClientConnectorError, ServerTimeoutError, asyncio.TimeoutError) as e:
-            logger.error(f"Health check connection failed: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Health check failed: {e}")
-            raise
+        # Check if we've received recent heartbeat
+        if not self.last_heartbeat:
+            logger.warning("Health check failed: No heartbeat received")
+            return
+
+        time_since_heartbeat = (datetime.now() - self.last_heartbeat).total_seconds()
+        if time_since_heartbeat > self.config.health_check_interval:
+            logger.warning(
+                f"Health check failed: Last heartbeat was {time_since_heartbeat:.1f}s ago"
+            )
+            return
+
+        logger.debug("Health check passed: Connection is healthy")
 
     def register_event_handler(self, event_type: str, handler: Callable[..., Any]) -> None:
         """Register an event handler for specific event types.

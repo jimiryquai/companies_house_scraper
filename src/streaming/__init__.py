@@ -50,6 +50,7 @@ from .log_filtering import (
     VolumeBasedSampler,
     setup_filtered_logger,
 )
+from .queue_manager import PriorityQueueManager, QueuedRequest, RequestPriority
 from .status_reporter import ConnectionEvent, ConnectionReport, ConnectionStatusReporter
 from .structured_logger import (
     ContextualLogger,
@@ -116,4 +117,7 @@ __all__ = [
     "VolumeBasedSampler",
     "SamplingStrategy",
     "setup_filtered_logger",
+    "PriorityQueueManager",
+    "QueuedRequest",
+    "RequestPriority",
 ]

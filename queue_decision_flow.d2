@@ -346,7 +346,7 @@ monitoring_details: |md
   - Average wait time
   - Success/failure rates
   - Rate limit hit frequency
-  
+
   **Alerts Triggered:**
   - Queue >80% capacity
   - HIGH priority failures
@@ -366,7 +366,7 @@ rate_limit_details: |md
   **Companies House Limits:**
   - 600 requests / 5 minutes
   - ~2 requests per second
-  
+
   **Typical Load:**
   - 1 company = 1 status check
   - + 10-50 officer fetches
@@ -385,13 +385,13 @@ priority_box: "Priority Examples" {
 priority_examples: |md
   **HIGH:** Company enters strike-off
   GET /company/12345678
-  
+
   **MEDIUM:** Fetch new officers
   GET /company/12345678/officers
-  
+
   **LOW:** Bulk data refresh
   GET /company/[batch]/filing-history
-  
+
   **BACKGROUND:** Old data cleanup
   DELETE /cache/expired-records
 |
@@ -408,13 +408,13 @@ decision_note: "Key Decision Points" {
 decision_details: |md
   **1. Capacity Protection:**
   Only HIGH priority can force enqueue
-  
+
   **2. Rate Limit Recovery:**
   Auto-retry with backoff & lower priority
-  
+
   **3. Data Integrity:**
   Duplicate detection prevents waste
-  
+
   **4. Persistence:**
   Queue survives service restarts
 |

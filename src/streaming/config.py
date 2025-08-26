@@ -12,6 +12,7 @@ class StreamingConfig(BaseSettings):
 
     # API Configuration
     streaming_api_key: str = Field(..., description="Companies House streaming API key")
+    rest_api_key: str = Field(..., description="Companies House REST API key")
     api_base_url: str = Field(
         default="https://stream.companieshouse.gov.uk", description="Base URL for streaming API"
     )
@@ -42,10 +43,18 @@ class StreamingConfig(BaseSettings):
 
     @field_validator("streaming_api_key")
     @classmethod
-    def validate_api_key(cls, v: str) -> str:
+    def validate_streaming_api_key(cls, v: str) -> str:
         """Validate the streaming API key."""
         if not v or len(v) < 10:
             raise ValueError("Invalid streaming API key")
+        return v
+
+    @field_validator("rest_api_key")
+    @classmethod
+    def validate_rest_api_key(cls, v: str) -> str:
+        """Validate the REST API key."""
+        if not v or len(v) < 10:
+            raise ValueError("Invalid REST API key")
         return v
 
     @field_validator("max_retries")
