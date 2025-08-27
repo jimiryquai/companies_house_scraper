@@ -176,21 +176,24 @@ class CreditManager:
                 try:
                     cursor = conn.cursor()
 
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                         INSERT INTO snov_credit_usage (
                             operation_type, credits_consumed, success, request_id,
                             company_id, officer_id, response_data, timestamp
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        operation_type,
-                        credits_consumed,
-                        success,
-                        request_id,
-                        company_id,
-                        officer_id,
-                        str(response_data) if response_data else None,
-                        datetime.now().isoformat(),
-                    ))
+                    """,
+                        (
+                            operation_type,
+                            credits_consumed,
+                            success,
+                            request_id,
+                            company_id,
+                            officer_id,
+                            str(response_data) if response_data else None,
+                            datetime.now().isoformat(),
+                        ),
+                    )
 
                     conn.commit()
 
@@ -259,8 +262,9 @@ class CreditManager:
                     since_iso = since_time.isoformat()
 
                     # Get usage by operation type
-                    cursor.execute("""
-                        SELECT 
+                    cursor.execute(
+                        """
+                        SELECT
                             operation_type,
                             COUNT(*) as operations,
                             SUM(credits_consumed) as credits_used,
@@ -269,7 +273,9 @@ class CreditManager:
                         FROM snov_credit_usage
                         WHERE timestamp >= ?
                         GROUP BY operation_type
-                    """, (since_iso,))
+                    """,
+                        (since_iso,),
+                    )
 
                     usage_by_type = {}
                     for row in cursor.fetchall():
@@ -282,14 +288,17 @@ class CreditManager:
                         }
 
                     # Get total statistics
-                    cursor.execute("""
-                        SELECT 
+                    cursor.execute(
+                        """
+                        SELECT
                             COUNT(*) as total_operations,
                             SUM(credits_consumed) as total_credits,
                             SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful_ops
                         FROM snov_credit_usage
                         WHERE timestamp >= ?
-                    """, (since_iso,))
+                    """,
+                        (since_iso,),
+                    )
 
                     totals = cursor.fetchone()
 
@@ -304,7 +313,9 @@ class CreditManager:
                         "total_operations": totals[0],
                         "total_credits_consumed": totals[1],
                         "successful_operations": totals[2],
-                        "overall_success_rate": (totals[2] / totals[0] * 100) if totals[0] > 0 else 0,
+                        "overall_success_rate": (totals[2] / totals[0] * 100)
+                        if totals[0] > 0
+                        else 0,
                         "usage_by_operation": usage_by_type,
                     }
 
@@ -377,7 +388,7 @@ class CreditManager:
                     "operations_tracked": self.operations_tracked,
                     "total_credits_consumed": self.total_credits_consumed,
                     "cache_valid": self._is_cache_valid(),
-                }
+                },
             }
 
         except Exception as e:
@@ -402,4 +413,3 @@ class CreditManager:
             "credit_operations_tracked": self.operations_tracked,
             "credit_cache_valid": self._is_cache_valid(),
         }
-

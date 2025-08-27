@@ -259,7 +259,9 @@ class StreamingIntegration:
 
             # Update enrichment state (simplified - would track individual officers)
             if success:
-                current_state = await self.enrichment_state_manager.get_enrichment_state(company_number)
+                current_state = await self.enrichment_state_manager.get_enrichment_state(
+                    company_number
+                )
                 if current_state:
                     emails_found = current_state.get("emails_found", 0) + len(emails)
                     officers_processed = current_state.get("officers_processed", 0) + 1
@@ -392,9 +394,9 @@ class StreamingIntegration:
             "enrichment_initiated": self.enrichment_initiated,
             "enrichment_completed": self.enrichment_completed,
             "enrichment_failed": self.enrichment_failed,
-            "success_rate": (
-                self.enrichment_completed / max(self.enrichment_initiated, 1) * 100
-            ) if self.enrichment_initiated > 0 else 0,
+            "success_rate": (self.enrichment_completed / max(self.enrichment_initiated, 1) * 100)
+            if self.enrichment_initiated > 0
+            else 0,
         }
 
     def get_health_status(self) -> dict[str, Any]:
@@ -431,4 +433,3 @@ class StreamingIntegration:
             "integration_enrichment_failed": stats["enrichment_failed"],
             "integration_success_rate": stats["success_rate"],
         }
-

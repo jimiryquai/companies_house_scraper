@@ -50,11 +50,11 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 
 **Task 1.4: Data Models and Schemas**
 
-- [ ] Create Pydantic models for Snov.io API responses
-- [ ] Create database ORM models for new tables
-- [ ] Implement data validation and serialization
-- [ ] Create model relationships and foreign key constraints
-- [ ] Add type hints and documentation
+- [x] Create Pydantic models for Snov.io API responses
+- [x] Create database ORM models for new tables
+- [x] Implement data validation and serialization
+- [x] Create model relationships and foreign key constraints
+- [x] Add type hints and documentation
 
 ### Phase 2: Core Integration (Week 2)
 

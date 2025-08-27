@@ -20,20 +20,20 @@ class EnrichmentState(Enum):
 
     # Enrichment workflow states
     ENRICHMENT_ELIGIBLE = "enrichment_eligible"  # Ready for enrichment
-    DOMAIN_QUEUED = "domain_queued"              # Domain discovery queued
-    DOMAIN_IN_PROGRESS = "domain_in_progress"    # Domain discovery in progress
-    DOMAIN_COMPLETED = "domain_completed"        # Domain discovery completed
-    DOMAIN_FAILED = "domain_failed"              # Domain discovery failed
+    DOMAIN_QUEUED = "domain_queued"  # Domain discovery queued
+    DOMAIN_IN_PROGRESS = "domain_in_progress"  # Domain discovery in progress
+    DOMAIN_COMPLETED = "domain_completed"  # Domain discovery completed
+    DOMAIN_FAILED = "domain_failed"  # Domain discovery failed
 
-    OFFICERS_QUEUED = "officers_queued"          # Officer email discovery queued
+    OFFICERS_QUEUED = "officers_queued"  # Officer email discovery queued
     OFFICERS_IN_PROGRESS = "officers_in_progress"  # Officer email discovery in progress
-    OFFICERS_COMPLETED = "officers_completed"    # Officer email discovery completed
-    OFFICERS_FAILED = "officers_failed"          # Officer email discovery failed
+    OFFICERS_COMPLETED = "officers_completed"  # Officer email discovery completed
+    OFFICERS_FAILED = "officers_failed"  # Officer email discovery failed
 
     # Final enrichment states
     ENRICHMENT_COMPLETED = "enrichment_completed"  # All enrichment complete
-    ENRICHMENT_FAILED = "enrichment_failed"        # Enrichment failed
-    ENRICHMENT_SKIPPED = "enrichment_skipped"      # Enrichment skipped (no officers, etc.)
+    ENRICHMENT_FAILED = "enrichment_failed"  # Enrichment failed
+    ENRICHMENT_SKIPPED = "enrichment_skipped"  # Enrichment skipped (no officers, etc.)
 
     @classmethod
     def get_valid_transitions(cls) -> dict[str, list[str]]:
@@ -171,7 +171,7 @@ class EnrichmentStateManager:
                         officers_processed INTEGER DEFAULT 0,
                         emails_found INTEGER DEFAULT 0,
                         snov_request_id TEXT NULL,
-                        
+
                         FOREIGN KEY (company_number) REFERENCES companies(company_number),
                         UNIQUE(company_number)
                     )
@@ -179,15 +179,15 @@ class EnrichmentStateManager:
 
                 # Create indexes for performance
                 cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_enrichment_state_company 
+                    CREATE INDEX IF NOT EXISTS idx_enrichment_state_company
                     ON enrichment_state(company_number)
                 """)
                 cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_enrichment_state_status 
+                    CREATE INDEX IF NOT EXISTS idx_enrichment_state_status
                     ON enrichment_state(enrichment_state)
                 """)
                 cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_enrichment_state_updated 
+                    CREATE INDEX IF NOT EXISTS idx_enrichment_state_updated
                     ON enrichment_state(updated_at)
                 """)
 
@@ -215,8 +215,9 @@ class EnrichmentStateManager:
             conn = sqlite3.connect(self.database_path)
             try:
                 cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT 
+                cursor.execute(
+                    """
+                    SELECT
                         company_number, enrichment_state, created_at, updated_at,
                         domain_queued_at, domain_completed_at, officers_queued_at,
                         officers_completed_at, enrichment_completed_at, retry_count,
@@ -224,7 +225,9 @@ class EnrichmentStateManager:
                         officers_processed, emails_found, snov_request_id
                     FROM enrichment_state
                     WHERE company_number = ?
-                """, (company_number,))
+                """,
+                    (company_number,),
+                )
 
                 row = cursor.fetchone()
                 if not row:
@@ -290,7 +293,9 @@ class EnrichmentStateManager:
                 if current_data:
                     current_state = EnrichmentState(current_data["enrichment_state"])
                     # Validate transition (allow same state for data updates)
-                    if current_state != new_state and not current_state.can_transition_to(new_state):
+                    if current_state != new_state and not current_state.can_transition_to(
+                        new_state
+                    ):
                         raise EnrichmentStateError(
                             f"Invalid enrichment state transition from '{current_state.value}' "
                             f"to '{new_state.value}'"
@@ -335,10 +340,12 @@ class EnrichmentStateManager:
                     params = list(update_data.values()) + [company_number]
                 else:
                     # Insert new record
-                    update_data.update({
-                        "company_number": company_number,
-                        "created_at": now,
-                    })
+                    update_data.update(
+                        {
+                            "company_number": company_number,
+                            "created_at": now,
+                        }
+                    )
                     columns = ", ".join(update_data.keys())
                     placeholders = ", ".join("?" * len(update_data))
                     sql = f"""
@@ -468,4 +475,3 @@ class EnrichmentStateManager:
             "enrichment_operations_total": self.enrichment_operations,
             "enrichment_manager_initialized": self._initialized,
         }
-

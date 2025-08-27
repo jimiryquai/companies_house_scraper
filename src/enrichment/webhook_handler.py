@@ -106,12 +106,14 @@ class WebhookHandler:
             result = await self._process_webhook(payload_data)
             self.processed_count += 1
 
-            return web.json_response({
-                "status": "success",
-                "message": "Webhook processed successfully",
-                "result": result,
-                "timestamp": datetime.now().isoformat(),
-            })
+            return web.json_response(
+                {
+                    "status": "success",
+                    "message": "Webhook processed successfully",
+                    "result": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
 
         except WebhookValidationError as e:
             self.failed_count += 1
@@ -248,7 +250,9 @@ class WebhookHandler:
         emails = payload.get("emails", [])
         request_id = payload.get("request_id")
 
-        logger.info(f"Email finder completed for {officer_name}@{domain}: {len(emails)} emails found")
+        logger.info(
+            f"Email finder completed for {officer_name}@{domain}: {len(emails)} emails found"
+        )
 
         # Store results in snov_webhooks table for processing by enrichment state manager
         await self._store_webhook_event(request_id, "email_finder_completed", payload)
@@ -312,8 +316,10 @@ class WebhookHandler:
         """
         uptime_seconds = (datetime.now() - self.start_time).total_seconds()
         success_rate = (
-            self.processed_count / max(self.webhook_count, 1) * 100
-        ) if self.webhook_count > 0 else 100.0
+            (self.processed_count / max(self.webhook_count, 1) * 100)
+            if self.webhook_count > 0
+            else 100.0
+        )
 
         return {
             "component": "webhook_handler",
@@ -327,7 +333,7 @@ class WebhookHandler:
                 "success_rate": round(success_rate, 2),
                 "uptime_seconds": round(uptime_seconds, 2),
                 "signature_verification_enabled": self.enable_signature_verification,
-            }
+            },
         }
 
     def get_metrics(self) -> dict[str, Any]:
@@ -342,9 +348,8 @@ class WebhookHandler:
             "webhook_total_received": self.webhook_count,
             "webhook_processed_count": self.processed_count,
             "webhook_failed_count": self.failed_count,
-            "webhook_success_rate": (
-                self.processed_count / max(self.webhook_count, 1) * 100
-            ) if self.webhook_count > 0 else 100.0,
+            "webhook_success_rate": (self.processed_count / max(self.webhook_count, 1) * 100)
+            if self.webhook_count > 0
+            else 100.0,
             "webhook_uptime_seconds": uptime_seconds,
         }
-

@@ -104,7 +104,9 @@ class DependencyManager:
             raise ValueError("company_number and company_name are required")
 
         if not officer_list:
-            logger.warning(f"No officers provided for company {company_number}, skipping enrichment")
+            logger.warning(
+                f"No officers provided for company {company_number}, skipping enrichment"
+            )
             return False
 
         try:
@@ -116,7 +118,9 @@ class DependencyManager:
 
             # Only enrich companies that have completed basic processing
             if company_state["processing_state"] != ProcessingState.COMPLETED.value:
-                logger.debug(f"Company {company_number} not ready for enrichment (state: {company_state['processing_state']})")
+                logger.debug(
+                    f"Company {company_number} not ready for enrichment (state: {company_state['processing_state']})"
+                )
                 return False
 
             # Initiate domain discovery first
@@ -128,7 +132,9 @@ class DependencyManager:
             return success
 
         except Exception as e:
-            raise DependencyError(f"Failed to initiate enrichment chain for {company_number}: {e}") from e
+            raise DependencyError(
+                f"Failed to initiate enrichment chain for {company_number}: {e}"
+            ) from e
 
     async def _queue_domain_discovery(self, company_number: str, company_name: str) -> bool:
         """Queue domain discovery request.
@@ -180,7 +186,9 @@ class DependencyManager:
             if success and domains:
                 # Domain discovery successful - proceed to officer email discovery
                 await self._queue_officer_email_discovery(company_number, domains)
-                logger.info(f"Domain discovery completed for {company_number}: {len(domains)} domains found")
+                logger.info(
+                    f"Domain discovery completed for {company_number}: {len(domains)} domains found"
+                )
             else:
                 # Domain discovery failed - mark enrichment as failed
                 await self._mark_enrichment_failed(company_number, "domain_discovery_failed")
@@ -243,7 +251,9 @@ class DependencyManager:
                     requests_queued += 1
 
             self.officer_requests_initiated += requests_queued
-            logger.info(f"Queued {requests_queued} officer email requests for company {company_number}")
+            logger.info(
+                f"Queued {requests_queued} officer email requests for company {company_number}"
+            )
 
         except Exception as e:
             logger.error(f"Failed to queue officer email discovery for {company_number}: {e}")
@@ -266,7 +276,9 @@ class DependencyManager:
         """
         try:
             if success:
-                logger.info(f"Email discovery completed for officer {officer_id}: {len(emails)} emails found")
+                logger.info(
+                    f"Email discovery completed for officer {officer_id}: {len(emails)} emails found"
+                )
             else:
                 logger.warning(f"Email discovery failed for officer {officer_id}")
 
@@ -352,9 +364,12 @@ class DependencyManager:
             "chains_completed": self.dependency_chains_completed,
             "chains_failed": self.dependency_chains_failed,
             "success_rate": (
-                self.dependency_chains_completed /
-                max(self.dependency_chains_completed + self.dependency_chains_failed, 1) * 100
-            ) if (self.dependency_chains_completed + self.dependency_chains_failed) > 0 else 0,
+                self.dependency_chains_completed
+                / max(self.dependency_chains_completed + self.dependency_chains_failed, 1)
+                * 100
+            )
+            if (self.dependency_chains_completed + self.dependency_chains_failed) > 0
+            else 0,
         }
 
     def get_health_status(self) -> dict[str, Any]:
@@ -387,4 +402,3 @@ class DependencyManager:
             "dependency_chains_failed": stats["chains_failed"],
             "dependency_success_rate": stats["success_rate"],
         }
-
