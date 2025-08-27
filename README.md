@@ -21,6 +21,19 @@ This repository contains a working Companies House scraper with:
 - ✅ Company Processing State Manager
 - ✅ Emergency safeguards against API violations
 
-## Branch: streaming-api-integration
+## Architecture
 
-Active development branch with latest streaming API integration features.
+### Streaming API Integration
+
+![Streaming Architecture](./streaming_architecture.svg)
+
+### Queue Decision Flow
+
+![Queue Decision Flow](./queue_decision_flow.svg)
+
+## Recent Updates
+
+- ✅ **Task 6.2.1 Completed**: Emergency safeguards and queue-only architecture
+- ✅ **Database Triggers**: Bulletproof state management enforcement
+- ✅ **API Protection**: Zero direct API calls, all requests go through queue
+- ✅ **Cloud Ready**: Bulletproof rate limiting for autonomous deployment
