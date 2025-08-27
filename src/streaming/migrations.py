@@ -364,6 +364,217 @@ class DatabaseMigration:
         finally:
             conn.close()
 
+    def migration_005_create_snov_tables(self) -> None:
+        """Migration 005: Create Snov.io integration tables.
+
+        Creates all Snov.io related tables for email discovery and domain management:
+        - company_domains: Store company domains discovered via Snov.io
+        - officer_emails: Store officer email addresses with verification status
+        - snov_credit_usage: Track Snov.io API credit consumption
+        - snov_webhooks: Handle webhook notifications from Snov.io
+        """
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Create company_domains table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS company_domains (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    company_id TEXT NOT NULL,
+                    domain TEXT NOT NULL,
+                    confidence_score REAL,
+                    discovery_method TEXT,
+                    discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_verified TIMESTAMP,
+                    is_primary BOOLEAN DEFAULT FALSE,
+                    status TEXT DEFAULT 'active',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                    FOREIGN KEY (company_id) REFERENCES companies(company_number),
+                    UNIQUE(company_id, domain)
+                )
+            """)
+            logger.info("Created company_domains table")
+
+            # Create officer_emails table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS officer_emails (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    officer_id TEXT NOT NULL,
+                    email TEXT NOT NULL,
+                    email_type TEXT,
+                    verification_status TEXT,
+                    confidence_score REAL,
+                    domain TEXT,
+                    discovery_method TEXT,
+                    discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_verified TIMESTAMP,
+                    snov_request_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                    FOREIGN KEY (officer_id) REFERENCES officers(id),
+                    UNIQUE(officer_id, email)
+                )
+            """)
+            logger.info("Created officer_emails table")
+
+            # Create snov_credit_usage table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS snov_credit_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    operation_type TEXT NOT NULL,
+                    credits_consumed INTEGER NOT NULL,
+                    success BOOLEAN NOT NULL,
+                    request_id TEXT,
+                    company_id TEXT,
+                    officer_id TEXT,
+                    response_data TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                    FOREIGN KEY (company_id) REFERENCES companies(company_number),
+                    FOREIGN KEY (officer_id) REFERENCES officers(id)
+                )
+            """)
+            logger.info("Created snov_credit_usage table")
+
+            # Create snov_webhooks table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS snov_webhooks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    webhook_id TEXT UNIQUE NOT NULL,
+                    event_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    request_id TEXT,
+                    payload TEXT NOT NULL,
+                    processed_at TIMESTAMP,
+                    error_message TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                    UNIQUE(webhook_id)
+                )
+            """)
+            logger.info("Created snov_webhooks table")
+
+            # Create indexes for company_domains
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_company_domains_company_id ON company_domains(company_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_company_domains_domain ON company_domains(domain)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_company_domains_primary ON company_domains(company_id, is_primary)"
+            )
+
+            # Create indexes for officer_emails
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_officer_emails_officer_id ON officer_emails(officer_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_officer_emails_email ON officer_emails(email)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_officer_emails_domain ON officer_emails(domain)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_officer_emails_status ON officer_emails(verification_status)"
+            )
+
+            # Create indexes for snov_credit_usage
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_snov_credit_usage_timestamp ON snov_credit_usage(timestamp)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_snov_credit_usage_operation ON snov_credit_usage(operation_type)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_snov_credit_usage_company ON snov_credit_usage(company_id)"
+            )
+
+            # Create indexes for snov_webhooks
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_snov_webhooks_status ON snov_webhooks(status)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_snov_webhooks_event_type ON snov_webhooks(event_type)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_snov_webhooks_request_id ON snov_webhooks(request_id)"
+            )
+
+            conn.commit()
+            logger.info("Migration 005 completed: Created Snov.io integration tables")
+
+        except sqlite3.Error as e:
+            logger.error(f"Migration 005 failed: {e}")
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def migration_006_extend_queue_jobs_snov(self) -> None:
+        """Migration 006: Extend queue_jobs table with Snov.io specific columns.
+
+        Adds columns to support Snov.io workflow integration:
+        - snov_request_id: Track Snov.io request IDs for bulk operations
+        - snov_credits_estimated: Estimated credit cost for job planning
+        """
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Check if queue_jobs table exists, create if not
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS queue_jobs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_type TEXT NOT NULL,
+                    company_number TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    priority INTEGER DEFAULT 1,
+                    payload TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    started_at TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    retry_count INTEGER DEFAULT 0,
+                    max_retries INTEGER DEFAULT 3,
+                    last_error TEXT
+                )
+            """)
+            logger.info("queue_jobs table created/verified")
+
+            # Add Snov.io specific columns
+            snov_columns = [("snov_request_id", "TEXT"), ("snov_credits_estimated", "INTEGER")]
+
+            for column_name, column_type in snov_columns:
+                try:
+                    cursor.execute(f"ALTER TABLE queue_jobs ADD COLUMN {column_name} {column_type}")
+                    logger.info(f"Added column {column_name} to queue_jobs table")
+                except sqlite3.OperationalError as e:
+                    if "duplicate column name" in str(e).lower():
+                        logger.info(f"Column {column_name} already exists, skipping")
+                    else:
+                        raise
+
+            # Create index for Snov.io request tracking
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_queue_jobs_snov_request ON queue_jobs(snov_request_id)"
+            )
+
+            conn.commit()
+            logger.info(
+                "Migration 006 completed: Extended queue_jobs table for Snov.io integration"
+            )
+
+        except sqlite3.Error as e:
+            logger.error(f"Migration 006 failed: {e}")
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def run_migrations(self) -> None:
         """Run all pending migrations."""
         current_version = self.get_schema_version()
@@ -374,6 +585,8 @@ class DatabaseMigration:
             (2, self.migration_002_add_streaming_metadata),
             (3, self.migration_003_create_state_management_tables),
             (4, self.migration_004_add_company_status_detail),
+            (5, self.migration_005_create_snov_tables),
+            (6, self.migration_006_extend_queue_jobs_snov),
         ]
 
         for version, migration_func in migrations:

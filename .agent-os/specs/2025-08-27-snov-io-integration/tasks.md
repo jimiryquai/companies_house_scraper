@@ -42,11 +42,11 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 
 **Task 1.3: Essential Integration Components**
 
-- [ ] Create webhook endpoint for receiving Snov.io results
-- [ ] Implement webhook signature verification and payload validation
-- [ ] Create credit consumption tracking and monitoring
-- [ ] Implement dependency chain logic (domain → officers flow)
-- [ ] Add enrichment state tracking (pending/completed/failed states)
+- [x] Create webhook endpoint for receiving Snov.io results
+- [x] Implement webhook signature verification and payload validation
+- [x] Create credit consumption tracking and monitoring
+- [x] Implement dependency chain logic (domain → officers flow)
+- [x] Add enrichment state tracking (pending/completed/failed states)
 
 **Task 1.4: Data Models and Schemas**
 
