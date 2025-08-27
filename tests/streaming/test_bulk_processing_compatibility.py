@@ -161,6 +161,7 @@ def config(temp_db: Any) -> Any:
     """Create test configuration with populated database."""
     return StreamingConfig(
         streaming_api_key="12345678-1234-1234-1234-123456789012",
+        rest_api_key="test-rest-api-key-123456",
         database_path=temp_db,
         batch_size=10,
     )

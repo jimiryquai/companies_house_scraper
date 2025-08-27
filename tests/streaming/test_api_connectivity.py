@@ -31,6 +31,7 @@ def real_api_config() -> Any:
 
     return StreamingConfig(
         streaming_api_key=api_key,
+        rest_api_key="test-rest-api-key-123456",
         database_path=":memory:",
         api_base_url="https://stream-api.company-information.service.gov.uk",
         connection_timeout=30,
@@ -51,6 +52,7 @@ def test_api_config() -> Any:
 
     return StreamingConfig(
         streaming_api_key=api_key,
+        rest_api_key="test-rest-api-key-123456",
         database_path=":memory:",
         api_base_url="https://api.companieshouse.gov.uk",
         connection_timeout=30,
@@ -415,6 +417,7 @@ class TestAPIErrorScenarios:
         # Create config with invalid credentials
         invalid_config = StreamingConfig(
             streaming_api_key="invalid-key-12345",
+            rest_api_key="test-rest-api-key-123456",
             database_path=":memory:",
             api_base_url="https://api.companieshouse.gov.uk",
         )
