@@ -71,6 +71,7 @@ class TestDatabaseOperations:
         """Create test configuration with temporary database."""
         return StreamingConfig(
             streaming_api_key="test-api-key-for-testing-12345",
+            rest_api_key="test-rest-api-key-123456",
             database_path=temp_db_path,
             log_level="DEBUG",
         )
@@ -217,7 +218,9 @@ class TestEventProcessing:
     def processor(self) -> Any:
         """Create event processor."""
         config = StreamingConfig(
-            streaming_api_key="test-api-key-for-testing-12345", database_path=":memory:"
+            streaming_api_key="test-api-key-for-testing-12345",
+            rest_api_key="test-rest-api-key-123456",
+            database_path=":memory:",
         )
         return EventProcessor(config)
 
@@ -314,7 +317,9 @@ class TestEndToEndWorkflow:
         """Test the complete flow from event to database."""
         # Setup
         config = StreamingConfig(
-            streaming_api_key="test-api-key-for-testing-12345", database_path=temp_db_path
+            streaming_api_key="test-api-key-for-testing-12345",
+            rest_api_key="test-rest-api-key-123456",
+            database_path=temp_db_path,
         )
 
         # Initialize database
@@ -383,7 +388,9 @@ class TestEndToEndWorkflow:
     async def test_resume_from_checkpoint(self, temp_db_path: Any) -> None:
         """Test that system can resume from last processed event."""
         config = StreamingConfig(
-            streaming_api_key="test-api-key-for-testing-12345", database_path=temp_db_path
+            streaming_api_key="test-api-key-for-testing-12345",
+            rest_api_key="test-rest-api-key-123456",
+            database_path=temp_db_path,
         )
 
         # Initialize database
@@ -445,6 +452,7 @@ class TestPerformance:
         """Test processing many events in reasonable time."""
         config = StreamingConfig(
             streaming_api_key="test-api-key-for-testing-12345",
+            rest_api_key="test-rest-api-key-123456",
             database_path=temp_db_path,
             batch_size=50,
         )

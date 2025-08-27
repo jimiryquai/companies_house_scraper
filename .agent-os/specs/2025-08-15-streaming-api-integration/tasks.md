@@ -171,9 +171,9 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 - [x] 6.2.1.2 Create database migration script for company_processing_state and api_rate_limit_log tables
 - [x] 6.2.1.3 Implement database indexes for performance optimization and rate limit tracking
 - [x] 6.2.1.4 Add database version tracking and migration runner
-- [ ] 6.2.1.5 Populate existing strike-off companies with 'completed' status
-- [ ] 6.2.1.6 Create emergency safeguard triggers to prevent direct API calls
-- [ ] 6.2.1.7 Verify all database tests pass
+- [x] 6.2.1.5 Populate existing strike-off companies with 'completed' status
+- [x] 6.2.1.6 Create emergency safeguard triggers to prevent direct API calls
+- [x] 6.2.1.7 Verify all database tests pass
 
 **Subtask 6.2.2: Company State Manager Core**
 - [ ] 6.2.2.1 Write tests for CompanyStateManager class interface and state transitions

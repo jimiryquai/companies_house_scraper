@@ -172,6 +172,7 @@ def config_with_real_db(real_db_copy: Any) -> Any:
     """Create streaming config that uses the real database copy."""
     return StreamingConfig(
         streaming_api_key="12345678-1234-1234-1234-123456789012",
+        rest_api_key="test-rest-api-key-123456",
         database_path=real_db_copy,
         batch_size=10,
         api_base_url="https://api.companieshouse.gov.uk",

@@ -139,75 +139,116 @@ class StreamingService:
             self.stats["errors"] += 1
 
     async def _process_company_with_rest_api(self, company_number: str) -> None:
-        """Fetch detailed company info from REST API to get accurate status.
+        """Queue a request to fetch detailed company info through the queue system.
+
+        This method now uses the PriorityQueueManager to ensure all API calls
+        go through the queue system, preventing direct API calls that could
+        violate rate limits.
 
         Args:
             company_number: Company number to fetch detailed info for
         """
         try:
-            self.logger.debug(f"Fetching detailed company info for {company_number}")
+            self.logger.debug(f"Queueing company status check for {company_number}")
 
-            # TIME-BASED RATE LIMITING: Adjust delays based on UK business hours
-            delay = self._get_adaptive_delay()
-            await asyncio.sleep(delay)
+            # Import queue manager and create request
+            import uuid
 
-            # Use existing REST API to get detailed company info
-            import aiohttp
+            from src.streaming.queue_manager import (
+                PriorityQueueManager,
+                QueuedRequest,
+                RequestPriority,
+            )
 
-            if not self.api_key:
-                self.logger.error("API key not available for REST API calls")
-                return
+            # Initialize queue manager if not already done
+            if not hasattr(self, "queue_manager"):
+                self.queue_manager = PriorityQueueManager()
 
-            # Create Basic auth header for REST API
-            import base64
+            # Create a high-priority request for company status check
+            request = QueuedRequest(
+                request_id=str(uuid.uuid4()),
+                priority=RequestPriority.HIGH,  # Status checks are high priority
+                endpoint=f"/company/{company_number}",
+                company_number=company_number,
+                request_type="company_status",
+                created_at=datetime.datetime.now(),
+                attempts=0,
+                callback=self._handle_company_status_response,  # Will be called with response
+            )
 
-            api_key_with_colon = f"{self.api_key}:"
-            encoded_credentials = base64.b64encode(api_key_with_colon.encode()).decode()
+            # Enqueue the request
+            success = await self.queue_manager.enqueue(request)
 
-            headers = {
-                "Authorization": f"Basic {encoded_credentials}",
-                "Accept": "application/json",
-            }
+            if success:
+                self.logger.info(f"Successfully queued status check for company {company_number}")
 
-            # Fetch company profile from REST API
-            base_url = "https://api.company-information.service.gov.uk"
-            url = f"{base_url}/company/{company_number}"
-
-            async with (
-                aiohttp.ClientSession() as session,
-                session.get(url, headers=headers) as response,
-            ):
-                if response.status == 200:
-                    company_data = await response.json()
-                    detailed_status = company_data.get("company_status_detail")
-
-                    self.logger.debug(
-                        f"Company {company_number} detailed status: {detailed_status}"
+                # Update state manager if available
+                if hasattr(self, "state_manager"):
+                    await self.state_manager.update_state(
+                        company_number=company_number,
+                        state="status_queued",
+                        status_request_id=request.request_id,
                     )
-
-                    # Check if this is a strike-off status
-                    if detailed_status and self._is_strike_off_status(detailed_status):
-                        await self._handle_strike_off_company(
-                            company_number, detailed_status, company_data
-                        )
-                    else:
-                        # No detailed status or not strike-off status
-                        status_display = (
-                            detailed_status if detailed_status else "no detailed status"
-                        )
-                        await self._handle_non_strike_off_company(company_number, status_display)
-
-                elif response.status == 404:
-                    self.logger.debug(f"Company {company_number} not found (404)")
-                elif response.status == 429:
-                    self.logger.warning(f"Rate limited while fetching company {company_number}")
-                else:
-                    self.logger.warning(
-                        f"Failed to fetch company {company_number}: HTTP {response.status}"
-                    )
+            else:
+                self.logger.warning(
+                    f"Failed to queue status check for company {company_number} - queue may be full"
+                )
+                self.stats["errors"] += 1
 
         except Exception as e:
-            self.logger.error(f"Error fetching detailed company info for {company_number}: {e}")
+            self.logger.error(f"Error queueing company status check for {company_number}: {e}")
+            self.stats["errors"] += 1
+
+    async def _handle_company_status_response(
+        self, request: "QueuedRequest", response: dict
+    ) -> None:
+        """Handle the response from a queued company status check.
+
+        This callback is invoked by the queue manager when the API request completes.
+
+        Args:
+            request: The original queued request
+            response: The API response data
+        """
+        try:
+            company_number = request.company_number
+
+            if response.get("status") == 200:
+                company_data = response.get("data", {})
+                detailed_status = company_data.get("company_status_detail")
+
+                self.logger.debug(f"Company {company_number} detailed status: {detailed_status}")
+
+                # Check if this is a strike-off status
+                if detailed_status and self._is_strike_off_status(detailed_status):
+                    await self._handle_strike_off_company(
+                        company_number, detailed_status, company_data
+                    )
+                else:
+                    # No detailed status or not strike-off status
+                    status_display = detailed_status if detailed_status else "no detailed status"
+                    await self._handle_non_strike_off_company(company_number, status_display)
+
+                # Update state manager if available
+                if hasattr(self, "state_manager"):
+                    await self.state_manager.update_state(
+                        company_number=company_number, state="status_fetched"
+                    )
+
+            elif response.get("status") == 404:
+                self.logger.debug(f"Company {company_number} not found (404)")
+            elif response.get("status") == 429:
+                self.logger.warning(f"Rate limited while fetching company {company_number}")
+                # Queue manager should handle retry with backoff
+            else:
+                self.logger.warning(
+                    f"Failed to fetch company {company_number}: HTTP {response.get('status')}"
+                )
+
+        except Exception as e:
+            self.logger.error(
+                f"Error handling company status response for {request.company_number}: {e}"
+            )
             self.stats["errors"] += 1
 
     def _get_adaptive_delay(self) -> float:

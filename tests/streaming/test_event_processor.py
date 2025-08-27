@@ -16,7 +16,10 @@ from src.streaming.event_processor import CompanyEvent, EventProcessor, EventVal
 def config() -> Any:
     """Create test configuration."""
     return StreamingConfig(
-        streaming_api_key="test-api-key-123456", database_path=":memory:", batch_size=10
+        streaming_api_key="test-api-key-123456",
+        rest_api_key="test-rest-api-key-123456",
+        database_path=":memory:",
+        batch_size=10,
     )
 
 

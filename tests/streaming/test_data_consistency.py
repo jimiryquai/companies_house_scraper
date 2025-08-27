@@ -26,7 +26,10 @@ from src.streaming.database import (
 def config() -> Any:
     """Create test configuration."""
     return StreamingConfig(
-        streaming_api_key="test-api-key-123456", database_path=":memory:", batch_size=10
+        streaming_api_key="test-api-key-123456",
+        rest_api_key="test-rest-api-key-123456",
+        database_path=":memory:",
+        batch_size=10,
     )
 
 
@@ -212,6 +215,7 @@ class TestTransactionManagement:
         temp_db.close()
         shared_config = StreamingConfig(
             streaming_api_key=config.streaming_api_key,
+            rest_api_key="test-rest-api-key-123456",
             database_path=temp_db.name,
             batch_size=config.batch_size,
         )
@@ -555,6 +559,7 @@ class TestConcurrentDataOperations:
         temp_db.close()
         shared_config = StreamingConfig(
             streaming_api_key=config.streaming_api_key,
+            rest_api_key="test-rest-api-key-123456",
             database_path=temp_db.name,
             batch_size=config.batch_size,
         )
@@ -638,6 +643,7 @@ class TestConcurrentDataOperations:
         temp_db.close()
         shared_config = StreamingConfig(
             streaming_api_key=config.streaming_api_key,
+            rest_api_key="test-rest-api-key-123456",
             database_path=temp_db.name,
             batch_size=config.batch_size,
         )

@@ -97,6 +97,7 @@ def load_test_config(load_test_db: Any) -> Any:
     """Create configuration optimized for load testing."""
     return StreamingConfig(
         streaming_api_key="12345678-1234-1234-1234-123456789012",
+        rest_api_key="test-rest-api-key-123456",
         database_path=load_test_db,
         batch_size=50,  # Larger batch size for load testing
         api_base_url="https://api.companieshouse.gov.uk",
