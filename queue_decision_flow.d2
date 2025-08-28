@@ -1,7 +1,7 @@
-# Companies House API Request Queue Decision Flow
-# Intelligent priority-based queuing for rate-limited API calls
+# Companies House + Snov.io Queue Decision Flow
+# Multi-API priority queuing with credit management
 
-start: "New Companies House\nAPI Request" {
+start: "New API Request" {
   shape: oval
   style.fill: "#e1f5fe"
   style.stroke: "#0288d1"
@@ -9,7 +9,7 @@ start: "New Companies House\nAPI Request" {
 }
 
 # Request Classification
-classify: "Classify Request Type" {
+classify: "Classify Request API & Type" {
   shape: diamond
   style.fill: "#fff3e0"
   style.stroke: "#f57c00"
@@ -17,35 +17,37 @@ classify: "Classify Request Type" {
 
 start -> classify
 
-# Companies House API Request Types
-status_check: "Company Status Check\n(Strike-off Detection)" {
+# Companies House API Request Types (Primary Bottleneck)
+ch_status_check: "CH Company Status\n[EVERY STREAMING EVENT]\n~600+ req/5min potential" {
   style.fill: "#fce4ec"
   style.stroke: "#c2185b"
+  style.stroke-width: 2
   style.font-size: 12
 }
 
-officer_fetch: "Officer Data Fetch\n(Directors & Secretaries)" {
+ch_officer_fetch: "CH Officer Fetch\n[ONLY if domain found]\n~40% of strike-offs" {
   style.fill: "#f3e5f5"
   style.stroke: "#7b1fa2"
   style.font-size: 12
 }
 
-bulk_ops: "Bulk Operations\n(Historical Data/Backfill)" {
-  style.fill: "#ede7f6"
-  style.stroke: "#512da8"
+# Snov.io API Request Types (Credit-Constrained)
+snov_domain: "Snov.io Domain Search\n[Strike-offs only]\nWebhook-based" {
+  style.fill: "#dcedc8"
+  style.stroke: "#558b2f"
   style.font-size: 12
 }
 
-maintenance: "Maintenance Tasks\n(Cleanup/Archive)" {
-  style.fill: "#e8eaf6"
-  style.stroke: "#3f51b5"
+snov_email: "Snov.io Email Finder\n[Per officer with domain]\nWebhook-based" {
+  style.fill: "#c8e6c9"
+  style.stroke: "#2e7d32"
   style.font-size: 12
 }
 
-classify -> status_check: "Real-time Status"
-classify -> officer_fetch: "Officer Import"
-classify -> bulk_ops: "Bulk Update"
-classify -> maintenance: "Background Task"
+classify -> ch_status_check: "CH Status Check"
+classify -> ch_officer_fetch: "CH Officers"
+classify -> snov_domain: "Snov Domain"
+classify -> snov_email: "Snov Email"
 
 # Priority Assignment
 assign_priority: "Assign Priority Level" {
@@ -54,10 +56,10 @@ assign_priority: "Assign Priority Level" {
   style.stroke: "#2e7d32"
 }
 
-status_check -> assign_priority: "HIGH (1)"
-officer_fetch -> assign_priority: "MEDIUM (2)"
-bulk_ops -> assign_priority: "LOW (3)"
-maintenance -> assign_priority: "BACKGROUND (4)"
+ch_status_check -> assign_priority: "HIGH (1)"
+ch_officer_fetch -> assign_priority: "MEDIUM (2)"
+snov_domain -> assign_priority: "LOW (3)"
+snov_email -> assign_priority: "LOW (3)"
 
 # Capacity Check
 check_capacity: "Check Queue Capacity" {
@@ -108,6 +110,34 @@ force_enqueue: "Force Enqueue\n(Strike-off Detection)" {
 force_check -> drop_request: "No (Lower Priority)"
 force_check -> force_enqueue: "Yes (HIGH Priority)"
 
+# API-Specific Checks
+api_check: "Is Snov.io Request?" {
+  shape: diamond
+  style.fill: "#c5e1a5"
+  style.stroke: "#558b2f"
+}
+
+has_capacity -> api_check
+force_enqueue -> api_check
+
+# Credit Check for Snov.io
+credit_check: "Check Credits\n(5000/month limit)" {
+  shape: diamond
+  style.fill: "#fff59d"
+  style.stroke: "#f9a825"
+}
+
+api_check -> credit_check: "Yes (Snov.io)"
+
+credits_exhausted: "Credits Exhausted\nDrop Request\n(Resume next month)" {
+  shape: rectangle
+  style.fill: "#ffcdd2"
+  style.stroke: "#d32f2f"
+  style.stroke-width: 2
+}
+
+credit_check -> credits_exhausted: "No credits"
+
 # Duplicate Check
 check_duplicate: "Check for Duplicates" {
   shape: diamond
@@ -115,8 +145,8 @@ check_duplicate: "Check for Duplicates" {
   style.stroke: "#8e24aa"
 }
 
-has_capacity -> check_duplicate
-force_enqueue -> check_duplicate
+api_check -> check_duplicate: "No (CH API)"
+credit_check -> check_duplicate: "Credits OK"
 
 reject_duplicate: "Reject Duplicate\n(Already Queued)" {
   shape: rectangle
@@ -199,24 +229,43 @@ remove_expired: "Remove Expired\n(>5 min old)" {
 
 check_expired -> remove_expired: "Expired"
 
-# Make API Call
-api_call: "Execute Companies House\nAPI Request" {
+# API Route Decision
+api_type: "API Type?" {
+  shape: diamond
+  style.fill: "#e1bee7"
+  style.stroke: "#7b1fa2"
+}
+
+check_expired -> api_type: "Valid"
+
+# Direct API Call (CH)
+ch_api_call: "Execute CH API\n(Direct HTTP)" {
   shape: rectangle
   style.fill: "#c5e1a5"
   style.stroke: "#33691e"
   style.stroke-width: 2
 }
 
-check_expired -> api_call: "Valid"
+# Webhook Trigger (Snov.io)
+snov_webhook: "Trigger Snov.io\nWebhook Request\n(Async)" {
+  shape: rectangle
+  style.fill: "#dcedc8"
+  style.stroke: "#558b2f"
+  style.stroke-width: 2
+}
+
+api_type -> ch_api_call: "Companies House"
+api_type -> snov_webhook: "Snov.io"
 
 # API Response
-check_response: "API Response?" {
+check_response: "Response Status?" {
   shape: diamond
   style.fill: "#e0f7fa"
   style.stroke: "#006064"
 }
 
-api_call -> check_response
+ch_api_call -> check_response
+snov_webhook -> check_response: "Webhook accepted"
 
 # Success Path
 mark_success: "Mark Processed\n- Update Database\n- Record Metrics" {
@@ -328,6 +377,7 @@ mark_success -> end_success
 drop_request -> end_dropped
 reject_duplicate -> end_dropped
 remove_expired -> end_dropped
+credits_exhausted -> end_dropped
 mark_failed -> end_failed
 
 # Queue Status Monitor
@@ -343,18 +393,20 @@ monitoring: "Queue Monitoring" {
 monitoring_details: |md
   **Real-time Metrics:**
   - Queue depth per priority
-  - Average wait time
-  - Success/failure rates
-  - Rate limit hit frequency
+  - CH API rate limit usage
+  - Snov.io credits remaining
+  - Domain discovery rate
+  - Email discovery success
 
   **Alerts Triggered:**
   - Queue >80% capacity
-  - HIGH priority failures
-  - Excessive 429 responses
+  - CH 429 responses
+  - Snov.io credits <10%
+  - Credits exhausted
 |
 
-# Rate Limiting Context
-rate_limit_box: "API Rate Limits" {
+# System Constraints
+constraints_box: "System Constraints" {
   shape: rectangle
   style.fill: "#fff9c4"
   style.stroke: "#f57f17"
@@ -362,15 +414,21 @@ rate_limit_box: "API Rate Limits" {
   near: top-right
 }
 
-rate_limit_details: |md
-  **Companies House Limits:**
-  - 600 requests / 5 minutes
-  - ~2 requests per second
+constraints_details: |md
+  **PRIMARY: CH API**
+  - 600 req/5min hard limit
+  - EVERY event needs status check
+  - Officers only if domain found
 
-  **Typical Load:**
-  - 1 company = 1 status check
-  - + 10-50 officer fetches
-  - Strike-off burst = 100s of calls
+  **SECONDARY: Snov.io Credits**
+  - 5000 credits/month
+  - Exhaust, don't ration
+  - Scalable to 100k
+
+  **Natural Filtering:**
+  - ~40-60% no domain found
+  - Reduces officer fetches
+  - Reduces email searches
 |
 
 # Priority Examples
@@ -383,17 +441,17 @@ priority_box: "Priority Examples" {
 }
 
 priority_examples: |md
-  **HIGH:** Company enters strike-off
+  **HIGH:** CH Status Check (EVERY event)
   GET /company/12345678
 
-  **MEDIUM:** Fetch new officers
+  **MEDIUM:** CH Officers (domain found)
   GET /company/12345678/officers
 
-  **LOW:** Bulk data refresh
-  GET /company/[batch]/filing-history
+  **LOW:** Snov.io Domain Search
+  POST webhook.snov.io/domain
 
-  **BACKGROUND:** Old data cleanup
-  DELETE /cache/expired-records
+  **LOW:** Snov.io Email Finder
+  POST webhook.snov.io/email
 |
 
 # Decision Logic Explanation
@@ -406,15 +464,19 @@ decision_note: "Key Decision Points" {
 }
 
 decision_details: |md
-  **1. Capacity Protection:**
-  Only HIGH priority can force enqueue
+  **1. CH API Protection:**
+  HIGH priority for status checks
+  600 req/5min is primary constraint
 
-  **2. Rate Limit Recovery:**
-  Auto-retry with backoff & lower priority
+  **2. Credit Management:**
+  Snov.io stops when credits exhausted
+  Resume next month automatically
 
-  **3. Data Integrity:**
-  Duplicate detection prevents waste
+  **3. Dependency Gating:**
+  No officers without domain
+  No emails without officers
 
-  **4. Persistence:**
-  Queue survives service restarts
+  **4. Natural Load Reduction:**
+  Each gate filters ~40-60%
+  Dramatically reduces downstream calls
 |

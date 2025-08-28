@@ -39,14 +39,18 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 - [x] Implement Email Finder API client method with webhook support
 - [x] Add simple error handling and basic retry logic (no exponential backoff)
 - [x] Create unit tests for API client methods
+- [ ] **CRITICAL FIX**: Update API base URL from v1 to v2 for bulk operations
+- [ ] **CRITICAL FIX**: Add missing bulk API methods (emails-by-domain-by-name, bulk-task-result)
+- [ ] **CRITICAL FIX**: Fix OAuth token handling for v2 endpoints
 
 **Task 1.3: Essential Integration Components**
 
 - [x] Create webhook endpoint for receiving Snov.io results
-- [x] Implement webhook signature verification and payload validation
-- [x] Create credit consumption tracking and monitoring
+- [ ] **CRITICAL FIX**: Fix webhook signature verification and payload validation (currently broken)
+- [ ] **CRITICAL FIX**: Fix database schema mismatch in credit consumption tracking
 - [x] Implement dependency chain logic (domain → officers flow)
 - [x] Add enrichment state tracking (pending/completed/failed states)
+- [ ] **CRITICAL FIX**: Fix webhook URL validation (GET request handling)
 
 **Task 1.4: Data Models and Schemas**
 
@@ -55,13 +59,36 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 - [x] Implement data validation and serialization
 - [x] Create model relationships and foreign key constraints
 - [x] Add type hints and documentation
+- [ ] **CRITICAL FIX**: Update API response models to match actual Snov.io webhook format
 
-### Phase 2: Core Integration (Week 2)
+### Phase 1.5: Critical Testing Discoveries (Week 2) - **URGENT FIXES REQUIRED**
+
+**Task 1.5: Address Testing Discoveries**
+
+- [ ] **CRITICAL**: Fix strike-off company domain discovery (0% success rate discovered)
+- [ ] **CRITICAL**: Implement proper webhook result saving (currently failing database writes)
+- [ ] **CRITICAL**: Fix API credit wastage due to broken webhook handling
+- [ ] **CRITICAL**: Add proper end-to-end testing before production API calls
+- [ ] **CRITICAL**: Fix database schema inconsistencies (credits_consumed vs credits_used)
+- [ ] **URGENT**: Implement webhook URL validation handling for Snov.io GET requests
+- [ ] **URGENT**: Fix SQL parameter binding errors in webhook handler
+- [ ] **URGENT**: Add proper error handling for malformed Snov.io webhook payloads
+
+**Task 1.6: Testing Infrastructure Improvements**
+
+- [ ] Create isolated testing environment to avoid wasting production credits
+- [ ] Implement database transaction rollback for failed tests
+- [ ] Add comprehensive unit tests for webhook handler before API integration
+- [ ] Create mock Snov.io API for testing without credit consumption
+- [ ] Add database schema validation tests
+- [ ] Implement proper testing workflow: test → validate → then production
+
+### Phase 2: Core Integration (Week 2) - **BLOCKED UNTIL PHASE 1.5 COMPLETE**
 
 **Task 2.1: Operational Data Collection and Monitoring**
 
-- [ ] Implement basic metrics collection for operational insights
-- [ ] Track credit consumption patterns and success/failure rates
+- [ ] Implement basic metrics collection for operational insights (BLOCKED - webhook saving broken)
+- [ ] Track credit consumption patterns and success/failure rates (BLOCKED - database issues)
 - [ ] Monitor streaming event volume and strike-off detection rates
 - [ ] Add CH API rate limit monitoring
 - [ ] Create simple dashboard for operational visibility

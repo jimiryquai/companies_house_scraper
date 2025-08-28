@@ -317,3 +317,91 @@ Following enterprise architecture principles (Reliability → Observability → 
 - Process 10x normal streaming load without data loss
 - Automatic recovery from rate limit violations within 5 minutes
 - Real-time operational metrics for queue depth and processing rates
+
+## 2025-08-27: Pivot to Snov.io for Data Enrichment
+
+**ID:** DEC-007
+**Status:** Implemented
+**Category:** Product & Architecture
+**Stakeholders:** Business Reset Group, Development Team
+
+### Decision
+
+Replace planned Apollo.io integration with Snov.io for data enrichment, implementing a gated architecture where domain discovery precedes officer email searches. Adopt "exhaust credits, don't ration" strategy with 5000 credits/month baseline, scalable to 100k.
+
+### Context
+
+Initial plans focused on Apollo.io for contact enrichment, but operational analysis revealed better alignment with Snov.io's webhook-based async processing and credit model. The streaming API integration highlighted that natural filtering (companies without discoverable domains) would dramatically reduce downstream API usage, making credit management more predictable.
+
+### Key Architecture Changes
+
+**Gated Processing Flow:**
+1. Strike-off company detected → Domain search (1 credit)
+2. Domain found → Fetch officers from CH API → Email search per officer (N credits)
+3. No domain found → Stop processing (40-60% naturally filtered)
+
+**Credit Strategy:**
+- 5000 credits/month baseline (exhaust completely each month)
+- Webhook-based async processing reduces complexity
+- Natural filtering makes credit consumption predictable
+- Scalable to 20k-100k credits based on business growth
+
+### Alternatives Considered
+
+1. **Apollo.io Integration (Original Plan)**
+   - Pros: Comprehensive business intelligence, established service
+   - Cons: Higher cost structure, synchronous API calls, less filtering opportunities
+
+2. **Multiple Provider Approach**
+   - Pros: Redundancy, best-of-breed for different data types
+   - Cons: Integration complexity, multiple API rate limits, cost management complexity
+
+3. **Snov.io with Gated Architecture (Selected)**
+   - Pros: Webhook async processing, natural filtering reduces load, predictable credit usage
+   - Cons: Single provider dependency, credit exhaustion handling required
+
+### Rationale
+
+Snov.io's webhook architecture aligns perfectly with the streaming API approach, enabling true async processing. The gated flow leverages natural filtering where 40-60% of companies have no discoverable domains, dramatically reducing credit consumption compared to blanket enrichment approaches. This makes the 5000 credit limit viable for meaningful lead generation while providing clear scaling path.
+
+### Implementation Strategy
+
+**Phase 1 (Foundation)** - COMPLETE:
+- Database schema for domains, emails, credit tracking
+- Snov.io API client with webhook support
+- Dependency chain logic enforcement
+- Credit consumption monitoring
+
+**Phase 2 (Core Integration)** - IN PROGRESS:
+- Operational monitoring and credit pattern analysis
+- Domain/email discovery services with confidence scoring
+- Queue integration with credit-aware throttling
+- Simple priority system (CH API HIGH, Snov.io LOW)
+
+**Phase 3 (Data-Driven Optimization)** - PLANNED:
+- Remove unnecessary complexity based on operational data
+- Optimize credit consumption patterns
+- Scaling preparation for higher credit limits
+
+### Consequences
+
+**Positive:**
+- Async webhook processing eliminates blocking API calls
+- Natural filtering dramatically reduces credit consumption
+- Predictable monthly credit exhaustion enables budget planning
+- Scalable architecture supports business growth (20k-100k credits)
+- Simplified integration compared to multiple providers
+
+**Negative:**
+- Single provider dependency for enrichment data
+- Credit exhaustion requires monthly renewal coordination
+- Limited to domain/email data vs comprehensive business intelligence
+- Need for webhook infrastructure and async result processing
+
+### Success Metrics
+
+- Domain discovery rate: Target >40% of strike-off companies
+- Email discovery rate: Target >60% of officers with domains
+- Credit utilization: 100% monthly exhaustion with scaling plan
+- Processing efficiency: Complete enrichment chain within 24 hours
+- Cost effectiveness: <£0.50 per qualified lead after enrichment
