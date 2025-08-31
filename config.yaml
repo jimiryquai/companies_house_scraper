@@ -53,6 +53,12 @@ api_endpoints:
 # max_retries: 3 # Max retries for failed API requests
 # initial_backoff_secs: 1.0 # Initial delay (in seconds) for retries
 
+# Snov.io API Configuration
+snov_io:
+  api_base_url: "https://app.snov.io/restapi"
+  client_id: "${SNOV_CLIENT_ID}"
+  client_secret: "${SNOV_CLIENT_SECRET}"
+
 # --- Removed Sections ---
 # Removed: Search Configuration (search_terms)
 # Removed: progress_file (not used by current script)

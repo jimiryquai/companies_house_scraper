@@ -1,4 +1,4 @@
-# Companies House Streaming Architecture - Hybrid System
+# Companies House + Snov.io Enrichment Architecture
 
 # External APIs
 streaming_api: "Companies House\nStreaming API" {
@@ -11,16 +11,43 @@ rest_api: "Companies House\nREST API" {
   style.fill: "#e1f5fe"
 }
 
-# Main Service
+snov_domain_api: "Snov.io\nDomain Search API" {
+  shape: cloud
+  style.fill: "#c5e1a5"
+}
+
+snov_email_api: "Snov.io\nEmail Finder API" {
+  shape: cloud
+  style.fill: "#c5e1a5"
+}
+
+# Main Service & Queue
 streaming_service: "StreamingService\n(Main Controller)" {
   shape: hexagon
   style.fill: "#fff3e0"
 }
 
-# Processing Components
-rest_call: "REST API Call\nGET /company/{number}" {
+queue_manager: "Priority Queue Manager\n600 req/5min CH limit" {
   shape: rectangle
-  style.fill: "#f3e5f5"
+  style.fill: "#ffecb3"
+  style.stroke: "#ff6f00"
+  style.stroke-width: 2
+}
+
+# Credit Management
+credit_manager: "Credit Manager\n5000 credits/month\n(scalable to 100k)" {
+  shape: rectangle
+  style.fill: "#fff9c4"
+  style.stroke: "#ffa000"
+  style.stroke-width: 2
+}
+
+# Processing Components
+rest_call: "CH Status Check\nGET /company/{number}\n[EVERY EVENT]" {
+  shape: rectangle
+  style.fill: "#fce4ec"
+  style.stroke: "#c2185b"
+  style.stroke-width: 2
 }
 
 status_check: "Check Detailed Status\ncompany_status_detail" {
@@ -28,53 +55,67 @@ status_check: "Check Detailed Status\ncompany_status_detail" {
   style.fill: "#e8f5e8"
 }
 
-# Decision Paths
+# Strike-off Path
 strike_off_detected: "Strike-off Detected\n'Active - Proposal to Strike Off'" {
   shape: rectangle
   style.fill: "#c8e6c9"
 }
 
-non_strike_off: "Non-strike-off Status\n'active', 'dissolved', etc" {
+# Enrichment Flow (Gated)
+domain_search: "Domain Search\n(Snov.io Webhook)" {
   shape: rectangle
-  style.fill: "#ffecb3"
+  style.fill: "#dcedc8"
 }
 
-# Database Checks
-db_check_new: "Company in\nDatabase?" {
+domain_check: "Domain Found?" {
   shape: diamond
-  style.fill: "#e3f2fd"
+  style.fill: "#c5e1a5"
 }
 
-db_check_cleanup: "Company in\nDatabase?" {
+no_domain: "No Domain\nSTOP ENRICHMENT\n(~40-60% filtered)" {
+  shape: rectangle
+  style.fill: "#ef9a9a"
+  style.stroke: "#c62828"
+  style.stroke-width: 2
+}
+
+officer_fetch: "Fetch Officers\nGET /officers\n(Only if domain)" {
+  shape: rectangle
+  style.fill: "#e1f5fe"
+}
+
+officer_check: "Officers Found?" {
   shape: diamond
-  style.fill: "#e3f2fd"
+  style.fill: "#bbdefb"
 }
 
-# Actions
-new_company: "New Strike-off Company\nFetch Officers" {
+no_officers: "No Officers\nSTOP ENRICHMENT" {
+  shape: rectangle
+  style.fill: "#ffab91"
+}
+
+email_finder: "Email Finder\nDomain + Officer Name\n→ Snov.io" {
   shape: rectangle
   style.fill: "#c8e6c9"
 }
 
-already_tracked: "Already Tracked\nLog: Monitoring" {
-  shape: rectangle
-  style.fill: "#fff9c4"
+# Credit Check
+credit_check: "Credits Available?" {
+  shape: diamond
+  style.fill: "#fff59d"
 }
 
-company_left: "Company Left Strike-off\nCleanup Records" {
+credits_exhausted: "Credits Exhausted\nPause Snov.io Ops" {
   shape: rectangle
-  style.fill: "#ffecb3"
+  style.fill: "#ffcdd2"
+  style.stroke: "#d32f2f"
+  style.stroke-width: 2
 }
 
-ignore_company: "Regular Company\nIgnore" {
+# Webhook Handler
+webhook_handler: "Webhook Handler\n(Async Results)" {
   shape: rectangle
-  style.fill: "#f5f5f5"
-}
-
-# Officer Import
-officer_api: "Fetch Officers\nREST API Call" {
-  shape: rectangle
-  style.fill: "#e1f5fe"
+  style.fill: "#e1bee7"
 }
 
 # Database
@@ -82,60 +123,118 @@ database: "SQLite Database" {
   shape: cylinder
   style.fill: "#f3e5f5"
 
-  companies_table: "companies table\n- company_number\n- company_status_detail\n- stream_last_updated"
-  officers_table: "officers table\n- company_number\n- officer_role\n- name"
+  companies: "companies\n- company_number\n- status_detail"
+  officers: "officers\n- company_number\n- name"
+  domains: "company_domains\n- company_number\n- domain"
+  emails: "officer_emails\n- officer_id\n- email"
+  credits: "snov_credit_usage\n- credits_consumed\n- remaining"
+  webhooks: "snov_webhooks\n- request_id\n- status"
 }
 
-# Flow connections
-streaming_api -> streaming_service: "Real-time events\n(basic status only)"
-streaming_service -> rest_call: "Extract company_number"
-rest_call -> rest_api: "GET detailed data"
-rest_api -> status_check: "Returns company_status_detail"
+# Main Flow
+streaming_api -> streaming_service: "Event stream"
+streaming_service -> queue_manager: "Queue request"
+queue_manager -> rest_call: "Process (HIGH priority)"
+rest_call -> rest_api: "MUST CHECK EVERY EVENT"
+rest_api -> status_check: "Returns status"
 
-status_check -> strike_off_detected: "Contains 'proposal to strike off'"
-status_check -> non_strike_off: "Regular status"
+# Strike-off Branch
+status_check -> strike_off_detected: "Strike-off detected"
+status_check -> ignore: "Not strike-off\n(STOP - no further calls)" {
+  style.fill: "#f5f5f5"
+}
 
-strike_off_detected -> db_check_new: "Check if new"
-db_check_new -> new_company: "Not in DB"
-db_check_new -> already_tracked: "Already in DB"
+# Enrichment Chain (with gates)
+strike_off_detected -> credit_check: "Start enrichment"
+credit_check -> credits_exhausted: "No credits"
+credit_check -> domain_search: "Credits OK"
 
-non_strike_off -> db_check_cleanup: "Check if needs cleanup"
-db_check_cleanup -> company_left: "In DB (was strike-off)"
-db_check_cleanup -> ignore_company: "Not in DB"
+domain_search -> snov_domain_api: "Webhook request"
+snov_domain_api -> webhook_handler: "Async response"
+webhook_handler -> domain_check: "Process result"
 
-new_company -> officer_api: "Fetch officers"
-officer_api -> rest_api: "GET /company/{number}/officers"
-officer_api -> database.officers_table: "Save officers"
-new_company -> database.companies_table: "Save company"
+domain_check -> no_domain: "No domain found"
+domain_check -> officer_fetch: "Domain found"
 
-company_left -> database.companies_table: "Mark as 'Left strike-off status'"
+officer_fetch -> rest_api: "GET officers"
+officer_fetch -> officer_check: "Check result"
 
-# Stats and monitoring
-streaming_service.stats: "Statistics\n- companies_processed\n- officers_imported\n- cleanup_operations\n- errors" {
+officer_check -> no_officers: "No officers"
+
+# Loop for each officer
+email_loop: "For Each Officer Loop" {
+  shape: rectangle
+  style.fill: "#e8f5e9"
+  style.stroke: "#2e7d32"
+  style.stroke-width: 2
+  style.stroke-dash: 3
+}
+
+officer_check -> email_loop: "Officers found"
+email_loop -> email_finder: "Process officer 1, 2, 3..."
+
+email_finder -> snov_email_api: "Webhook per officer\n(domain + name)"
+snov_email_api -> webhook_handler: "Async results"
+webhook_handler -> email_check: "Check result"
+
+# Email Found Decision
+email_check: "Email Found?" {
+  shape: diamond
+  style.fill: "#a5d6a7"
+  style.stroke: "#2e7d32"
+}
+
+email_check -> database.emails: "Yes - Save email"
+email_check -> no_email_skip: "No - Skip"
+
+no_email_skip: "Skip to next officer" {
+  shape: rectangle
+  style.fill: "#ffccbc"
+  style.stroke: "#d84315"
+}
+
+email_check -> email_loop: "Continue loop"
+no_email_skip -> email_loop: "Next officer"
+
+# Database saves (in order)
+strike_off_detected -> database.companies: "1. Save company"
+domain_check -> database.domains: "2. Save domain (if found)"
+officer_check -> database.officers: "3. Save ALL officers (if found)"
+email_check -> database.emails: "4. Save email (if found)"
+credit_manager -> database.credits: "Track usage"
+
+# Bottleneck Indicators
+bottleneck_box: "System Bottlenecks" {
+  shape: rectangle
+  style.fill: "#ffebee"
+  style.stroke: "#c62828"
+  style.stroke-dash: 3
+  near: top-right
+}
+
+bottleneck_details: |md
+  **Primary Bottleneck:**
+  CH API: 600 req/5min
+  EVERY event needs status check
+
+  **Secondary Bottleneck:**
+  Snov.io: 5000 credits/month
+  Exhaust, don't ration
+
+  **Natural Filtering:**
+  - 40-60% no domain found
+  - Some have no officers
+  - Reduces downstream load
+
+  **Email Search Flow:**
+  1 company → 1 domain search
+  If domain found → N officers
+  Each officer → 1 email search
+  Total: 1 + N Snov.io calls
+|
+
+# Stats
+streaming_service.stats: "Metrics\n- events_processed\n- strike_offs_found\n- domains_discovered\n- emails_found\n- credits_remaining" {
   shape: oval
   style.fill: "#f0f4ff"
-}
-
-# Legend
-legend: "Legend" {
-  shape: rectangle
-  style.fill: "#ffffff"
-  style.stroke: "#000000"
-  style.stroke-width: 2
-
-  api_legend: "APIs" {
-    style.fill: "#e1f5fe"
-  }
-
-  processing_legend: "Processing" {
-    style.fill: "#f3e5f5"
-  }
-
-  decision_legend: "Decisions" {
-    style.fill: "#e8f5e8"
-  }
-
-  database_legend: "Database" {
-    style.fill: "#f3e5f5"
-  }
 }
