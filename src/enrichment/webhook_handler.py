@@ -71,6 +71,8 @@ class WebhookHandler:
 
     async def handle_webhook(self, request: Request) -> Response:
         """Handle incoming webhook request.
+        
+        Supports both POST (for actual webhook data) and GET (for URL validation).
 
         Args:
             request: Aiohttp request object
@@ -80,6 +82,18 @@ class WebhookHandler:
         """
         try:
             self.webhook_count += 1
+
+            # Handle GET requests for webhook URL validation
+            if request.method == "GET":
+                return await self._handle_webhook_validation(request)
+
+            # Handle POST requests with webhook data
+            if request.method != "POST":
+                return web.Response(
+                    status=405,
+                    text=json.dumps({"error": "Method not allowed"}),
+                    content_type="application/json",
+                )
 
             # Extract payload
             payload_bytes = await request.read()
@@ -275,9 +289,9 @@ class WebhookHandler:
             Processing result
         """
         credits_remaining = payload.get("credits_remaining", 0)
-        credits_used = payload.get("credits_used", 0)
+        credits_consumed = payload.get("credits_consumed", 0)
 
-        logger.info(f"Credits updated: {credits_remaining} remaining, {credits_used} used")
+        logger.info(f"Credits updated: {credits_remaining} remaining, {credits_consumed} consumed")
 
         # Store credits update for credit manager processing
         await self._store_webhook_event(None, "credits_updated", payload)
@@ -285,7 +299,7 @@ class WebhookHandler:
         return {
             "event": "credits_updated",
             "credits_remaining": credits_remaining,
-            "credits_used": credits_used,
+            "credits_consumed": credits_consumed,
         }
 
     async def _store_webhook_event(
@@ -335,6 +349,33 @@ class WebhookHandler:
                 "signature_verification_enabled": self.enable_signature_verification,
             },
         }
+
+    async def _handle_webhook_validation(self, request: Request) -> Response:
+        """Handle GET request for webhook URL validation.
+        
+        Snov.io sends GET requests to validate webhook URLs during setup.
+        This endpoint responds with a simple confirmation.
+        
+        Args:
+            request: HTTP GET request
+            
+        Returns:
+            Simple validation response
+        """
+        logger.info(f"Webhook validation request from {request.remote}")
+
+        # Simple validation response
+        response_data = {
+            "status": "ok",
+            "message": "Webhook endpoint is active",
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        return web.Response(
+            status=200,
+            text=json.dumps(response_data),
+            content_type="application/json",
+        )
 
     def get_metrics(self) -> dict[str, Any]:
         """Get webhook processing metrics.

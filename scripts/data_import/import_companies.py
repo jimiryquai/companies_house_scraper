@@ -17,7 +17,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants
-CSV_FILENAME = "BasicCompanyDataAsOneFile-2025-04-01.csv"
+CSV_FILENAME = "BasicCompanyDataAsOneFile-2025-08-01.csv"
 DB_FILENAME = "companies.db"
 BATCH_SIZE = 1000  # Number of records to insert at once
 LOG_INTERVAL = 100000  # Log progress every this many records
@@ -69,7 +69,7 @@ def setup_fresh_database(db_filename: str = DB_FILENAME) -> sqlite3.Connection:
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         company_number TEXT NOT NULL,
         name TEXT,
-        role TEXT,
+        officer_role TEXT,
         appointed_on TEXT,
         resigned_on TEXT,
         officer_id TEXT,

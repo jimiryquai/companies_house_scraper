@@ -500,7 +500,7 @@ class WebhookValidator:
             "request_id": payload.get("data", {}).get("request_id"),
             "status": payload.get("data", {}).get("status"),
             "results_count": payload.get("data", {}).get("results_count", 0),
-            "credits_used": payload.get("data", {}).get("credits_used", 0),
+            "credits_consumed": payload.get("data", {}).get("credits_consumed", 0),
             "error_message": payload.get("data", {}).get("error_message"),
             "download_url": payload.get("data", {}).get("download_url"),
         }

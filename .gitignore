@@ -72,11 +72,14 @@ Thumbs.db
 # Data files
 *.csv
 *.db
-*.log
 progress.json
 import_output.txt
 archive/
 BasicCompanyDataAsOneFile-*.csv*
+
+# Log files
+logs/
+*.log
 
 # Zone Identifier files
 *.Zone.Identifier

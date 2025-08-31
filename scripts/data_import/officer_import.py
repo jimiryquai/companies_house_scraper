@@ -42,6 +42,21 @@ def get_db_connection() -> sqlite3.Connection:
     return conn
 
 
+def get_companies_with_officers_count() -> int:
+    """Get count of companies that already have officers imported."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(DISTINCT company_number) FROM officers")
+        result = cursor.fetchone()
+        return result[0] if result else 0
+    except Exception as e:
+        logger.error(f"Error counting companies with officers: {e}")
+        return 0
+    finally:
+        conn.close()
+
+
 def get_companies_with_strike_off() -> list[tuple[str, str]]:
     """Get all companies with strike-off status from the database."""
     conn = get_db_connection()
@@ -263,7 +278,19 @@ def main() -> None:  # noqa: C901
         logger.info("No companies with strike-off status found in the database")
         return
 
+    # Check if we should have a cutoff limit for companies
+    MAX_COMPANIES = 10000  # Stop after processing 10K companies for customer delivery
+
+    # Check current progress first
+    current_companies_with_officers = get_companies_with_officers_count()
+    if current_companies_with_officers >= MAX_COMPANIES:
+        logger.info(f"Already have officers for {current_companies_with_officers} companies (>= {MAX_COMPANIES})")
+        logger.info("Officer import target reached. Ready to enable streaming API.")
+        return
+
+    companies_needed = MAX_COMPANIES - current_companies_with_officers
     logger.info(f"Starting import of officers for {total_companies} companies")
+    logger.info(f"Need {companies_needed} more companies to reach {MAX_COMPANIES} limit")
 
     # Process rate limiting
     rate_limit_calls = config.get("rate_limit", {}).get("calls", 600)
@@ -317,7 +344,20 @@ def main() -> None:  # noqa: C901
 
             # Update progress
             processed_count += 1
+
+            # Check if we've reached the 10K companies limit
+            current_total = current_companies_with_officers + processed_count
+            if current_total >= MAX_COMPANIES:
+                logger.info(f"Reached target of {MAX_COMPANIES} companies with officers!")
+                logger.info(f"Total processed: {processed_count}, Total companies with officers: {current_total}")
+                logger.info("Officer import complete. Ready to enable streaming API.")
+                save_progress(
+                    last_processed_index + processed_count, total_companies, company_number
+                )
+                break
+
             if processed_count % 10 == 0:
+                logger.info(f"Progress: {current_total}/{MAX_COMPANIES} companies with officers")
                 save_progress(
                     last_processed_index + processed_count, total_companies, company_number
                 )
