@@ -12,7 +12,7 @@ from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 
-sys.path.append("src")
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from enrichment.snov_client import SnovioAuthError, SnovioClient, SnovioError
 

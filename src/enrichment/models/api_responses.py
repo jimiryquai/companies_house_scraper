@@ -109,7 +109,7 @@ class WebhookEventData(BaseModel):
     request_id: str = Field(..., description="Original request ID")
     status: str = Field(..., description="Operation status (completed, failed, etc.)")
     results_count: int = Field(default=0, description="Number of results found")
-    credits_used: int = Field(default=0, description="Credits consumed by operation")
+    credits_consumed: int = Field(default=0, description="Credits consumed by operation")
     error_message: Optional[str] = Field(None, description="Error message if failed")
     download_url: Optional[str] = Field(None, description="URL to download results")
 
@@ -150,7 +150,7 @@ class CreditUsageResponse(BaseModel):
     """
 
     credits_left: int = Field(..., description="Remaining API credits")
-    credits_used: int = Field(default=0, description="Credits used in current operation")
+    credits_consumed: int = Field(default=0, description="Credits consumed in current operation")
     monthly_limit: Optional[int] = Field(None, description="Monthly credit limit")
     reset_date: Optional[datetime] = Field(None, description="Credit reset date")
     operation_type: str = Field(..., description="Type of operation consuming credits")

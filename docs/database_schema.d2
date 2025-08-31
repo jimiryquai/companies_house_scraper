@@ -1,0 +1,268 @@
+# Companies House Scraper Database Schema ERD
+# Generated: 2025-08-31
+
+direction: right
+
+# Main Tables
+companies: {
+  shape: sql_table
+  company_number: "TEXT PRIMARY KEY"
+  company_name: "TEXT"
+  company_status: "TEXT"
+  company_status_detail: "TEXT"
+  incorporation_date: "TEXT"
+  postcode: "TEXT"
+  sic_code: "TEXT"
+  imported_at: "TEXT"
+  psc_fetched: "INTEGER DEFAULT 0"
+  stream_last_updated: "TEXT"
+  stream_status: "TEXT DEFAULT 'unknown'"
+  data_source: "TEXT DEFAULT 'bulk'"
+  last_stream_event_id: "TEXT"
+  stream_metadata: "TEXT"
+}
+
+officers: {
+  shape: sql_table
+  id: "INTEGER PRIMARY KEY AUTOINCREMENT"
+  company_number: "TEXT NOT NULL"
+  name: "TEXT"
+  officer_role: "TEXT"
+  appointed_on: "TEXT"
+  resigned_on: "TEXT"
+  officer_id: "TEXT"
+  address_line_1: "TEXT"
+  address_line_2: "TEXT"
+  locality: "TEXT"
+  region: "TEXT"
+  country: "TEXT"
+  postal_code: "TEXT"
+  premises: "TEXT"
+  nationality: "TEXT"
+  occupation: "TEXT"
+  dob_year: "INTEGER"
+  dob_month: "INTEGER"
+  country_of_residence: "TEXT"
+  person_number: "TEXT"
+}
+
+# Snov.io Integration Tables
+company_domains: {
+  shape: sql_table
+  id: "INTEGER PRIMARY KEY AUTOINCREMENT"
+  company_id: "TEXT NOT NULL"
+  domain: "TEXT NOT NULL"
+  confidence_score: "REAL"
+  discovery_method: "TEXT"
+  discovered_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+  last_verified: "TIMESTAMP"
+  is_primary: "BOOLEAN DEFAULT FALSE"
+  status: "TEXT DEFAULT 'active'"
+  created_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+  updated_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+}
+
+officer_emails: {
+  shape: sql_table
+  id: "INTEGER PRIMARY KEY AUTOINCREMENT"
+  officer_id: "TEXT NOT NULL"
+  email: "TEXT NOT NULL"
+  email_type: "TEXT"
+  verification_status: "TEXT"
+  confidence_score: "REAL"
+  domain: "TEXT"
+  discovery_method: "TEXT"
+  discovered_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+  last_verified: "TIMESTAMP"
+  snov_request_id: "TEXT"
+  created_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+  updated_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+}
+
+snov_credit_usage: {
+  shape: sql_table
+  id: "INTEGER PRIMARY KEY AUTOINCREMENT"
+  operation_type: "TEXT NOT NULL"
+  credits_consumed: "INTEGER NOT NULL"
+  success: "BOOLEAN NOT NULL"
+  request_id: "TEXT"
+  company_id: "TEXT"
+  officer_id: "TEXT"
+  response_data: "TEXT"
+  timestamp: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+}
+
+snov_webhooks: {
+  shape: sql_table
+  id: "INTEGER PRIMARY KEY AUTOINCREMENT"
+  webhook_id: "TEXT UNIQUE NOT NULL"
+  event_type: "TEXT NOT NULL"
+  status: "TEXT NOT NULL"
+  request_id: "TEXT"
+  payload: "TEXT NOT NULL"
+  processed_at: "TIMESTAMP"
+  error_message: "TEXT"
+  created_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+}
+
+# Queue and Processing Tables
+queue_jobs: {
+  shape: sql_table
+  id: "INTEGER PRIMARY KEY AUTOINCREMENT"
+  job_type: "TEXT NOT NULL"
+  company_number: "TEXT"
+  status: "TEXT NOT NULL DEFAULT 'pending'"
+  priority: "INTEGER DEFAULT 1"
+  payload: "TEXT"
+  created_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+  started_at: "TIMESTAMP"
+  completed_at: "TIMESTAMP"
+  retry_count: "INTEGER DEFAULT 0"
+  max_retries: "INTEGER DEFAULT 3"
+  last_error: "TEXT"
+  snov_request_id: "TEXT"
+  snov_credits_estimated: "INTEGER"
+}
+
+company_processing_state: {
+  shape: sql_table
+  id: "INTEGER PRIMARY KEY AUTOINCREMENT"
+  company_number: "TEXT NOT NULL"
+  processing_state: "TEXT NOT NULL DEFAULT 'detected'"
+  created_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+  updated_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+  status_queued_at: "TIMESTAMP NULL"
+  status_fetched_at: "TIMESTAMP NULL"
+  officers_queued_at: "TIMESTAMP NULL"
+  officers_fetched_at: "TIMESTAMP NULL"
+  completed_at: "TIMESTAMP NULL"
+  status_retry_count: "INTEGER DEFAULT 0"
+  officers_retry_count: "INTEGER DEFAULT 0"
+  status_request_id: "TEXT NULL"
+  officers_request_id: "TEXT NULL"
+  last_error: "TEXT NULL"
+  last_error_at: "TIMESTAMP NULL"
+  last_429_response_at: "TIMESTAMP NULL"
+  rate_limit_violations: "INTEGER DEFAULT 0"
+}
+
+enrichment_state: {
+  shape: sql_table
+  id: "INTEGER PRIMARY KEY AUTOINCREMENT"
+  company_number: "TEXT NOT NULL"
+  enrichment_state: "TEXT NOT NULL DEFAULT 'enrichment_eligible'"
+  created_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+  updated_at: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+  domain_queued_at: "TIMESTAMP NULL"
+  domain_completed_at: "TIMESTAMP NULL"
+  officers_queued_at: "TIMESTAMP NULL"
+  officers_completed_at: "TIMESTAMP NULL"
+  enrichment_completed_at: "TIMESTAMP NULL"
+  retry_count: "INTEGER DEFAULT 0"
+  max_retries: "INTEGER DEFAULT 3"
+  last_error: "TEXT NULL"
+  last_error_at: "TIMESTAMP NULL"
+  domains_found: "INTEGER DEFAULT 0"
+  officers_processed: "INTEGER DEFAULT 0"
+  emails_found: "INTEGER DEFAULT 0"
+  snov_request_id: "TEXT NULL"
+}
+
+# Streaming Tables
+stream_events: {
+  shape: sql_table
+  id: "INTEGER PRIMARY KEY AUTOINCREMENT"
+  event_id: "TEXT UNIQUE"
+  event_type: "TEXT NOT NULL"
+  company_number: "TEXT"
+  event_data: "TEXT"
+  processed_at: "TEXT"
+  created_at: "TEXT DEFAULT CURRENT_TIMESTAMP"
+}
+
+api_rate_limit_log: {
+  shape: sql_table
+  id: "INTEGER PRIMARY KEY AUTOINCREMENT"
+  timestamp: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+  request_type: "TEXT NOT NULL"
+  response_status: "INTEGER NOT NULL"
+  company_number: "TEXT NULL"
+  request_id: "TEXT NULL"
+  processing_time_ms: "INTEGER NULL"
+}
+
+# Metadata Tables
+metadata: {
+  shape: sql_table
+  key: "TEXT PRIMARY KEY NOT NULL"
+  value: "TEXT"
+}
+
+schema_version: {
+  shape: sql_table
+  version: "INTEGER PRIMARY KEY"
+  applied_at: "TEXT NOT NULL"
+}
+
+# Primary Foreign Key Relationships
+officers.company_number -> companies.company_number: {
+  style.stroke: "#e74c3c"
+  style.stroke-width: 2
+}
+
+company_domains.company_id -> companies.company_number: {
+  style.stroke: "#3498db"
+  style.stroke-width: 2
+}
+
+officer_emails.officer_id -> officers.id: {
+  style.stroke: "#3498db"
+  style.stroke-width: 2
+}
+
+snov_credit_usage.company_id -> companies.company_number: {
+  style.stroke: "#f39c12"
+  style.stroke-width: 1
+  style.stroke-dash: 5
+}
+
+snov_credit_usage.officer_id -> officers.id: {
+  style.stroke: "#f39c12"
+  style.stroke-width: 1
+  style.stroke-dash: 5
+}
+
+stream_events.company_number -> companies.company_number: {
+  style.stroke: "#9b59b6"
+  style.stroke-width: 1
+  style.stroke-dash: 5
+}
+
+company_processing_state.company_number -> companies.company_number: {
+  style.stroke: "#27ae60"
+  style.stroke-width: 2
+}
+
+enrichment_state.company_number -> companies.company_number: {
+  style.stroke: "#16a085"
+  style.stroke-width: 2
+}
+
+# Legend
+legend: |md
+  # Database Schema Legend
+  
+  **Line Types:**
+  - Solid lines: Primary foreign keys (required)
+  - Dashed lines: Optional foreign keys
+  
+  **Table Categories:**
+  - Gray: Core Tables (Companies & Officers)
+  - Blue: Snov.io Integration (Domain/Email Discovery)
+  - Yellow: Credit Management
+  - Green: Processing & Queue Management
+  - Teal: Enrichment State
+  - Purple: Streaming & Rate Limiting
+  - White: System Metadata
+|
+

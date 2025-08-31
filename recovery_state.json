@@ -1,7 +1,7 @@
 {
-  "timestamp": "2025-08-27T21:12:44.608158",
+  "timestamp": "2025-08-31T18:44:58.361774",
   "metrics": {
-    "start_time": "2025-08-27T21:12:44.596740",
+    "start_time": "2025-08-31T18:44:58.360397",
     "current_phase": "full_operation",
     "status": "completed",
     "companies_validated": 0,
@@ -13,13 +13,13 @@
     "test_requests_successful": 0,
     "rate_limit_violations": 0,
     "phase_durations": {
-      "validation": 0.0003027915954589844,
-      "queue_restoration": 1.6450881958007812e-05,
-      "state_reconciliation": 0.00015497207641601562,
-      "gradual_restart": 0.00037026405334472656
+      "validation": 0.0003294944763183594,
+      "queue_restoration": 1.0013580322265625e-05,
+      "state_reconciliation": 5.793571472167969e-05,
+      "gradual_restart": 6.604194641113281e-05
     },
-    "total_duration": 0.011411,
-    "last_update": "2025-08-27T21:12:44.607735",
+    "total_duration": 0.001373,
+    "last_update": "2025-08-31T18:44:58.361667",
     "success_rate": 1.0
   },
   "is_recovering": true,

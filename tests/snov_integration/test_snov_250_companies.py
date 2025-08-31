@@ -11,7 +11,7 @@ import time
 from typing import Any, Dict, List
 
 # Add src to path so we can import our modules
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from enrichment.credit_manager import CreditManager
 from enrichment.snov_client import SnovClient

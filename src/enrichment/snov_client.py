@@ -780,17 +780,17 @@ class SnovioClient:
         self,
         company_name: str,
         limit: int = 10,
-        webhook_url: Optional[str] = None,
+        use_polling: bool = True,
     ) -> dict[str, Any]:
         """Search for company domains by company name.
 
         Args:
             company_name: Name of the company to search domains for
             limit: Maximum number of results to return
-            webhook_url: Optional webhook URL for async result delivery
+            use_polling: Use polling instead of webhook (default True due to API limitations)
 
         Returns:
-            Domain search results or task information if webhook is used
+            Domain search results
 
         Raises:
             SnovioError: If the request fails
@@ -800,15 +800,14 @@ class SnovioClient:
         if not company_name or not company_name.strip():
             raise SnovioError("Company name cannot be empty")
 
+        if use_polling:
+            # Use polling approach due to webhook API limitations
+            return await self._domain_search_with_polling(company_name, limit)
+        # Legacy direct approach (may fail with current API)
         params = {
             "company": company_name.strip(),
             "limit": limit,
         }
-
-        # Add webhook URL if provided for async processing
-        if webhook_url:
-            params["webhook_url"] = webhook_url
-
         return await self._make_request("GET", "domain-search", params=params)
 
     async def find_email_by_name(
@@ -1100,6 +1099,108 @@ class SnovioClient:
                 "last_check": last_credit_check,
             },
         }
+
+    async def _domain_search_with_polling(
+        self,
+        company_name: str,
+        limit: int = 10,
+        max_attempts: int = 30,
+        delay_seconds: int = 10,
+    ) -> dict[str, Any]:
+        """Search for company domains using polling instead of webhook.
+        
+        This method works around the Snov.io API limitation where webhook URLs
+        cannot be included in POST requests by using a two-step process:
+        1. POST request without webhook to get task_hash
+        2. Poll GET endpoint to retrieve results
+        
+        Args:
+            company_name: Name of the company to search domains for
+            limit: Maximum number of results to return
+            max_attempts: Maximum polling attempts (default: 30)
+            delay_seconds: Delay between polling attempts (default: 10)
+            
+        Returns:
+            Domain search results
+            
+        Raises:
+            SnovioError: If the request fails or times out
+        """
+        # Step 1: Submit domain search request without webhook
+        params = {
+            "company": company_name.strip(),
+            "limit": limit,
+        }
+
+        logger.info(f"Starting domain search for: {company_name}")
+
+        # Make the initial request to get task_hash
+        response = await self._make_request("GET", "domain-search", params=params)
+
+        # Extract task_hash from response
+        task_hash = response.get("task_hash")
+        if not task_hash:
+            # If no task_hash, this might be a direct response
+            if "domains" in response or "status" in response:
+                return response
+            raise SnovioError("No task_hash received from domain search API")
+
+        logger.info(f"Received task_hash: {task_hash}, starting polling")
+
+        # Step 2: Poll for results
+        return await self._poll_task_result(task_hash, max_attempts, delay_seconds)
+
+    async def _poll_task_result(
+        self,
+        task_hash: str,
+        max_attempts: int = 30,
+        delay_seconds: int = 10,
+    ) -> dict[str, Any]:
+        """Poll for task results using task_hash.
+        
+        Args:
+            task_hash: Task hash from initial API request
+            max_attempts: Maximum polling attempts
+            delay_seconds: Delay between attempts
+            
+        Returns:
+            Task results when completed
+            
+        Raises:
+            SnovioError: If polling times out or fails
+        """
+        for attempt in range(max_attempts):
+            try:
+                # Poll the task result endpoint
+                result = await self._make_request("GET", f"get-task-result/{task_hash}")
+
+                status = result.get("status")
+
+                if status == "completed":
+                    logger.info(f"Task {task_hash} completed after {attempt + 1} attempts")
+                    return result.get("data", result)
+                if status == "failed":
+                    error_message = result.get("error", "Task failed")
+                    raise SnovioError(f"Task failed: {error_message}")
+                if status in ["pending", "processing", "running"]:
+                    logger.debug(f"Task {task_hash} still {status}, attempt {attempt + 1}")
+                else:
+                    logger.warning(f"Unknown task status: {status}")
+
+                # Wait before next attempt
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(delay_seconds)
+
+            except SnovioError:
+                # Re-raise Snov.io specific errors
+                raise
+            except Exception as e:
+                logger.error(f"Error polling task {task_hash}: {e}")
+                if attempt == max_attempts - 1:
+                    raise SnovioError(f"Polling failed after {max_attempts} attempts: {e}")
+                await asyncio.sleep(delay_seconds)
+
+        raise SnovioError(f"Task {task_hash} did not complete within {max_attempts * delay_seconds} seconds")
 
 
 # Factory function for easy instantiation
