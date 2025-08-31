@@ -114,18 +114,11 @@ class StreamingIntegration:
                 await self._mark_enrichment_skipped(company_number, "insufficient_credits")
                 return False
 
-            # Get officers for enrichment
-            officers = await self._get_company_officers(company_number)
-            if not officers:
-                logger.debug(f"No officers found for company {company_number}")
-                await self._mark_enrichment_skipped(company_number, "no_officers")
-                return False
-
-            # Initiate enrichment chain
-            success = await self.dependency_manager.initiate_enrichment_chain(
+            # Initiate domain search first (no officers needed upfront)
+            # Officers will be queued AFTER domain search succeeds
+            success = await self.dependency_manager.initiate_domain_search_first(
                 company_number,
                 company_name,
-                officers,
             )
 
             if success:
@@ -133,9 +126,9 @@ class StreamingIntegration:
                 await self.enrichment_state_manager.update_enrichment_state(
                     company_number,
                     EnrichmentState.DOMAIN_QUEUED.value,
-                    officers_count=len(officers),
+                    # officers_count will be updated when officers are actually fetched
                 )
-                logger.info(f"Enrichment initiated for company {company_number}")
+                logger.info(f"Domain search initiated for company {company_number}")
 
             return success
 
@@ -334,70 +327,30 @@ class StreamingIntegration:
             logger.error(f"Error checking credit availability: {e}")
             return False
 
-    async def _get_company_officers(self, company_number: str) -> list[dict[str, Any]]:
-        """Get officers for a company by queuing CH REST API request if needed.
+    async def _queue_officers_fetch_if_needed(self, company_number: str) -> bool:
+        """Queue officers fetch from CH REST API if not already in progress.
 
-        This method ensures we have fresh officer data from Companies House API.
-        It will either return existing officers or queue a fresh fetch.
+        This method follows the proper workflow: only fetch officers AFTER
+        domain search succeeds, as per the linear diagram.
 
         Args:
-            company_number: Company number
+            company_number: Company number to fetch officers for
 
         Returns:
-            List of officer records with required fields
+            True if officers fetch was queued successfully
 
         Raises:
-            Exception: If officer fetch fails or times out
+            Exception: If queue operation fails
         """
-        import sqlite3
-
-        # Check if we already have recent officers in database
-        conn = sqlite3.connect(self.database_path)
         try:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT name, officer_role, officer_id, appointed_on, 
-                       address_line_1, locality, country, postal_code
-                FROM officers 
-                WHERE company_number = ?
-                ORDER BY appointed_on DESC
-                """,
-                (company_number,),
-            )
-
-            officers = []
-            for row in cursor.fetchall():
-                officers.append({
-                    "name": row[0],
-                    "officer_role": row[1],
-                    "officer_id": row[2],
-                    "appointed_on": row[3],
-                    "address_line_1": row[4],
-                    "locality": row[5],
-                    "country": row[6],
-                    "postal_code": row[7],
-                })
-
-            # If we have officers, return them (assuming they're reasonably fresh)
-            if officers:
-                logger.debug(f"Found {len(officers)} existing officers for company {company_number}")
-                return officers
-
-            # No officers found in database - check if we should skip enrichment
-            # This happens for companies where officer import hasn't reached this company yet
-            logger.info(f"No officers in database for company {company_number}")
-
-        finally:
-            conn.close()
-
-        # For now, return empty list to skip enrichment for companies without officers
-        # This allows the system to continue working while the officer import completes
-        # TODO: Implement queue-based officers fetch when officers are needed but missing
-        # This will be needed when processing companies discovered via streaming API
-        # that aren't in the 10K officer import batch
-        logger.debug(f"No officers available for company {company_number}, skipping enrichment")
-        return []
+            # Queue officers fetch via CH REST API
+            request_id = await self.company_state_manager.queue_officers_fetch(company_number)
+            logger.info(f"Queued officers fetch for company {company_number}, request_id: {request_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to queue officers fetch for company {company_number}: {e}")
+            raise
 
     async def _mark_enrichment_skipped(self, company_number: str, reason: str) -> None:
         """Mark enrichment as skipped for a company.

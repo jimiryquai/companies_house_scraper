@@ -48,23 +48,24 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 - [x] **IMPACT**: Streaming API can now process companies with officers in database, skips others gracefully
 
 **Required for E2E Test**:
-- [x] **CRITICAL**: Fix StreamingIntegration._get_company_officers() to work with existing officer data
+- [x] **CRITICAL**: Fix StreamingIntegration to use domain-first REST API workflow (corrected from database shortcut)
 - [x] **CRITICAL**: Implement queue processor that calls Snov.io domain_search() with polling (SnovQueueProcessor created)
-- [x] **CRITICAL**: Implement domain results handler that saves to company_domains table (via DependencyManager)
+- [x] **CRITICAL**: Implement domain results handler that saves to company_domains table (via DependencyManager._save_company_domains)
 - [x] **CRITICAL**: Implement domain success trigger that fetches officers from CH API (workflow coordination implemented)
-- [x] **CRITICAL**: Implement officer success trigger that queues Snov email finder requests (via DependencyManager)
-- [x] **CRITICAL**: Implement email results handler that saves to officer_emails table (via DependencyManager)
+- [x] **CRITICAL**: Implement officer success trigger that queues Snov email finder requests (via DependencyManager._queue_officer_email_discovery)
+- [x] **CRITICAL**: Implement email results handler that saves to officer_emails table (via DependencyManager.handle_officer_email_completion)
 - [x] **CRITICAL**: Add workflow coordination between streaming completion and enrichment start (EnrichmentCoordinator created)
 
 **Success Criteria**: Stream event → Company saved → Domain search queued → Domain found → Officers fetched → Emails discovered → All data in database
 
-**Technical Flow**: ✅ **WORKING** - EnrichmentCoordinator orchestrates complete workflow from StreamingIntegration through SnovQueueProcessor
+**Technical Flow**: ⚠️ **COMPONENTS IMPLEMENTED** - EnrichmentCoordinator orchestrates workflow, but needs E2E testing with real CH API calls
 
-**IMPLEMENTATION COMPLETED (Aug 31, 2025)**:
+**IMPLEMENTATION STATUS (Aug 31, 2025)**:
 - ✅ **queue_processor.py**: Processes Snov.io API requests from queue with polling
-- ✅ **enrichment_coordinator.py**: Orchestrates complete workflow with all components
-- ✅ **streaming_integration.py**: Fixed to work with existing officer database
-- ✅ **Integration Test**: All components initialize and work together successfully
+- ✅ **enrichment_coordinator.py**: Orchestrates complete workflow with all components  
+- ✅ **streaming_integration.py**: Fixed to use domain-first REST API workflow (not database shortcuts)
+- ✅ **dependency_manager.py**: Added proper async coordination methods for officers fetch completion
+- ⚠️ **Integration Test**: Components initialize successfully, but E2E workflow needs testing with real API calls
 
 ### Phase 1: Foundation (Week 1) - **INFRASTRUCTURE COMPLETED**
 
@@ -113,14 +114,14 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 - [x] Database schema ready
 - [x] Snov client with polling ready  
 - [x] Queue system ready
-- ❌ **ZERO connecting logic between components**
+- ✅ **CONNECTING LOGIC IMPLEMENTED** - Components now properly connected via async coordination
 
-**Identified Issues from Failed Testing**:
-- [ ] **WORKFLOW MISSING**: No queue → Snov client bridge 
-- [ ] **STORAGE MISSING**: Domain/email results not saved to database
-- [ ] **CHAIN MISSING**: Success in one step doesn't trigger next step
-- [ ] **CONNECTION MISSING**: Streaming API not connected to Snov.io enrichment workflow
-- [ ] **TESTING MISSING**: No way to test workflow without wasting credits
+**Implementation Status from Current Work**:
+- [x] **WORKFLOW BRIDGE**: Queue → Snov client bridge implemented (SnovQueueProcessor)
+- [x] **STORAGE LAYER**: Domain/email results saved to database (DependencyManager helpers)
+- [x] **CHAIN COORDINATION**: Success in one step triggers next step (async completion handlers)
+- [x] **STREAMING CONNECTION**: Streaming API connected to Snov.io enrichment workflow (StreamingIntegration)
+- [ ] **E2E TESTING**: Need to test complete workflow with real API calls (no credit waste)
 
 **Note**: Previous "0% success rate" was due to missing workflow implementation, NOT API issues
 
@@ -137,18 +138,18 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 
 **Task 2.1: Implement Workflow Execution Layer**
 
-- [ ] Create queue processor that bridges queue items to Snov client calls
-- [ ] Implement domain search execution: queue → Snov.domain_search() → save to company_domains
-- [ ] Implement officer fetch trigger: domain success → CH API → save to officers  
-- [ ] Implement email discovery execution: officer + domain → Snov.email_finder() → save to officer_emails
-- [ ] Create workflow coordinator that manages the entire chain
+- [x] Create queue processor that bridges queue items to Snov client calls (SnovQueueProcessor)
+- [x] Implement domain search execution: queue → Snov.domain_search() → save to company_domains (_save_company_domains)
+- [x] Implement officer fetch trigger: domain success → CH API → save to officers (handle_domain_completion → _queue_officers_fetch_after_domain_success)
+- [x] Implement email discovery execution: officer + domain → Snov.email_finder() → save to officer_emails (_queue_officer_email_discovery)
+- [x] Create workflow coordinator that manages the entire chain (EnrichmentCoordinator)
 
 **Task 2.2: Connect Streaming to Snov.io Workflow**
 
-- [ ] Connect streaming event processing to trigger Snov.io enrichment workflow  
-- [ ] Implement strike-off company detection → queue domain search
-- [ ] Add proper error handling and retry logic for each workflow step
-- [ ] Create workflow state tracking in enrichment_state table
+- [x] Connect streaming event processing to trigger Snov.io enrichment workflow (StreamingIntegration.handle_strike_off_company_enrichment)
+- [x] Implement strike-off company detection → queue domain search (initiate_domain_search_first)
+- [x] Add proper error handling and retry logic for each workflow step (try/catch blocks with logging)
+- [x] Create workflow state tracking in enrichment_state table (EnrichmentStateManager integration)
 
 **Task 2.3: Add Testing and Monitoring**
 

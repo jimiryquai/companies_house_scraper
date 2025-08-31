@@ -136,6 +136,56 @@ class DependencyManager:
                 f"Failed to initiate enrichment chain for {company_number}: {e}"
             ) from e
 
+    async def initiate_domain_search_first(
+        self,
+        company_number: str,
+        company_name: str,
+    ) -> bool:
+        """Initiate domain search first, without requiring officers upfront.
+
+        This follows the correct workflow: Domain search → Officers API → Email search.
+        Officers will be queued AFTER domain search succeeds.
+
+        Args:
+            company_number: Companies House company number
+            company_name: Company name for domain search
+
+        Returns:
+            True if domain search initiated successfully
+
+        Raises:
+            DependencyError: If domain search initiation fails
+        """
+        if not company_number or not company_name:
+            raise ValueError("company_number and company_name are required")
+
+        try:
+            # Check if company is eligible for enrichment
+            company_state = await self.company_state_manager.get_state(company_number)
+            if not company_state:
+                logger.warning(f"No state found for company {company_number}")
+                return False
+
+            # Only enrich companies that have completed basic processing
+            if company_state["processing_state"] != ProcessingState.COMPLETED.value:
+                logger.debug(
+                    f"Company {company_number} not ready for enrichment (state: {company_state['processing_state']})"
+                )
+                return False
+
+            # Initiate domain discovery without requiring officers upfront
+            success = await self._queue_domain_discovery(company_number, company_name)
+            if success:
+                self.domain_requests_initiated += 1
+                logger.info(f"Initiated domain-first enrichment for company {company_number}")
+
+            return success
+
+        except Exception as e:
+            raise DependencyError(
+                f"Failed to initiate domain search for {company_number}: {e}"
+            ) from e
+
     async def _queue_domain_discovery(self, company_number: str, company_name: str) -> bool:
         """Queue domain discovery request.
 
@@ -184,10 +234,14 @@ class DependencyManager:
         """
         try:
             if success and domains:
-                # Domain discovery successful - proceed to officer email discovery
-                await self._queue_officer_email_discovery(company_number, domains)
+                # Domain discovery successful - save domains then queue officers fetch from CH API
+                await self._save_company_domains(company_number, domains)
+                
+                # Now queue officers fetch from Companies House REST API
+                await self._queue_officers_fetch_after_domain_success(company_number, domains)
+                
                 logger.info(
-                    f"Domain discovery completed for {company_number}: {len(domains)} domains found"
+                    f"Domain discovery completed for {company_number}: {len(domains)} domains found, officers fetch queued"
                 )
             else:
                 # Domain discovery failed - mark enrichment as failed
@@ -198,6 +252,58 @@ class DependencyManager:
         except Exception as e:
             logger.error(f"Error handling domain completion for {company_number}: {e}")
             await self._mark_enrichment_failed(company_number, f"domain_completion_error: {e}")
+
+    async def _save_company_domains(self, company_number: str, domains: list[str]) -> None:
+        """Save discovered domains to company_domains table.
+
+        Args:
+            company_number: Company number
+            domains: List of discovered domains
+        """
+        import sqlite3
+        
+        conn = sqlite3.connect(self.database_path)
+        try:
+            cursor = conn.cursor()
+            for domain in domains:
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO company_domains 
+                    (company_number, domain, discovery_method, confidence_score, created_at)
+                    VALUES (?, ?, ?, ?, datetime('now'))
+                    """,
+                    (company_number, domain, "snov_domain_search", 0.8)
+                )
+            conn.commit()
+            logger.debug(f"Saved {len(domains)} domains for company {company_number}")
+        except Exception as e:
+            logger.error(f"Failed to save domains for company {company_number}: {e}")
+            raise
+        finally:
+            conn.close()
+
+    async def _queue_officers_fetch_after_domain_success(
+        self, company_number: str, domains: list[str]
+    ) -> None:
+        """Queue officers fetch from CH REST API after domain search succeeds.
+
+        Args:
+            company_number: Company number
+            domains: Discovered domains (stored for later email search)
+        """
+        try:
+            # Queue officers fetch via CH REST API (proper workflow)
+            request_id = await self.company_state_manager.queue_officers_fetch(company_number)
+            logger.info(
+                f"Queued officers fetch for company {company_number} after domain success, request_id: {request_id}"
+            )
+            
+            # Store the domains for use when officers fetch completes
+            # This ensures email search happens with both officers and domains
+            
+        except Exception as e:
+            logger.error(f"Failed to queue officers fetch for company {company_number}: {e}")
+            raise
 
     async def _queue_officer_email_discovery(
         self,
@@ -287,6 +393,69 @@ class DependencyManager:
 
         except Exception as e:
             logger.error(f"Error handling officer email completion: {e}")
+
+    async def handle_officers_fetch_completion(
+        self,
+        company_number: str,
+        officers: list[dict[str, Any]],
+        success: bool,
+    ) -> None:
+        """Handle completion of officers fetch from CH REST API.
+
+        This is called when officers fetch completes and should trigger email discovery.
+
+        Args:
+            company_number: Company number
+            officers: Fetched officer records from CH API
+            success: Whether officers fetch was successful
+        """
+        try:
+            if success and officers:
+                # Officers fetch successful - get stored domains and start email discovery
+                domains = await self._get_stored_domains_for_company(company_number)
+                if domains:
+                    await self._queue_officer_email_discovery(company_number, domains)
+                    logger.info(
+                        f"Officers fetch completed for {company_number}: {len(officers)} officers, "
+                        f"email discovery queued for {len(domains)} domains"
+                    )
+                else:
+                    logger.warning(f"No stored domains found for company {company_number}, cannot proceed to email discovery")
+                    await self._mark_enrichment_failed(company_number, "no_domains_for_email_search")
+            else:
+                # Officers fetch failed - mark enrichment as failed
+                logger.warning(f"Officers fetch failed for company {company_number}")
+                await self._mark_enrichment_failed(company_number, "officers_fetch_failed")
+
+        except Exception as e:
+            logger.error(f"Error handling officers fetch completion for {company_number}: {e}")
+            await self._mark_enrichment_failed(company_number, f"officers_completion_error: {e}")
+
+    async def _get_stored_domains_for_company(self, company_number: str) -> list[str]:
+        """Get stored domains for a company from company_domains table.
+
+        Args:
+            company_number: Company number
+
+        Returns:
+            List of domain strings
+        """
+        import sqlite3
+        
+        conn = sqlite3.connect(self.database_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT domain FROM company_domains WHERE company_number = ?",
+                (company_number,)
+            )
+            domains = [row[0] for row in cursor.fetchall()]
+            return domains
+        except Exception as e:
+            logger.error(f"Failed to get stored domains for company {company_number}: {e}")
+            return []
+        finally:
+            conn.close()
 
     async def _check_enrichment_completion(self, company_number: str) -> None:
         """Check if enrichment chain is complete for a company.
