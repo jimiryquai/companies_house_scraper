@@ -84,9 +84,9 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 - [x] Implement Email Finder API client method with webhook support
 - [x] Add simple error handling and basic retry logic (no exponential backoff)
 - [x] Create unit tests for API client methods
-- [ ] **CRITICAL FIX**: Update API base URL from v1 to v2 for bulk operations
-- [ ] **CRITICAL FIX**: Add missing bulk API methods (emails-by-domain-by-name, bulk-task-result)
-- [ ] **CRITICAL FIX**: Fix OAuth token handling for v2 endpoints
+- [x] **CRITICAL FIX**: Update API base URL from v1 to v2 for bulk operations
+- [x] **CRITICAL FIX**: Add missing bulk API methods (emails-by-domain-by-name, bulk-task-result)
+- [x] **CRITICAL FIX**: Fix OAuth token handling for v2 endpoints
 
 **Task 1.2.1: Fix Credit Balance API Integration**
 - [x] **CRITICAL**: Update balance check from `account-info` to `get-balance` endpoint (current returns 404)
@@ -97,20 +97,20 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 - [x] **CRITICAL**: Fix credit consumption recording to use operation counting instead of response parsing
 
 **Task 1.2.2: Implement Credit-Aware Workflow Orchestra**
-- [ ] **CRITICAL**: Create credit-aware workflow coordinator that checks balance before each Snov.io operation
-- [ ] **CRITICAL**: Implement pre-operation credit checking (before domain search, before email search)
-- [ ] **CRITICAL**: Implement post-operation credit tracking (after domain search, after email search)
-- [ ] **CRITICAL**: Add credit exhaustion handling that stops Snov.io operations but continues CH API
+- [x] **CRITICAL**: Create credit-aware workflow coordinator that checks balance before each Snov.io operation
+- [x] **CRITICAL**: Implement pre-operation credit checking (before domain search, before email search)
+- [x] **CRITICAL**: Implement post-operation credit tracking (after domain search, after email search)
+- [x] **CRITICAL**: Add credit exhaustion handling that stops Snov.io operations but continues CH API
 - [ ] **CRITICAL**: Update workflow to use v2 endpoints for domain/email operations
-- [ ] **CRITICAL**: Ensure CH REST API continues regardless of credit status (non-blocking)
-- [ ] **CRITICAL**: Add actual credit consumption recording (may be 0 if no results found)
+- [x] **CRITICAL**: Ensure CH REST API continues regardless of credit status (non-blocking)
+- [x] **CRITICAL**: Add actual credit consumption recording (may be 0 if no results found)
 
 **Task 1.2.3: Fix Snov.io API v2 Integration**
-- [ ] **CRITICAL**: Update domain search to use v2 endpoints (`POST /v2/company-domain-by-name/start`)
-- [ ] **CRITICAL**: Update email search to use v2 endpoints (`POST /v2/emails-by-domain-by-name/start`)
-- [ ] **CRITICAL**: Implement v2 result polling (`GET /v2/company-domain-by-name/result?task_hash=`)
-- [ ] **CRITICAL**: Fix OAuth token handling for v2 endpoints (may require different authentication)
-- [ ] **CRITICAL**: Update polling methods to handle v2 response formats
+- [x] **CRITICAL**: Update domain search to use v2 endpoints (`POST /v2/company-domain-by-name/start`)
+- [x] **CRITICAL**: Update email search to use v2 endpoints (`POST /v2/emails-by-domain-by-name/start`)
+- [x] **CRITICAL**: Implement v2 result polling (`GET /v2/bulk-task-result?task_hash=`)
+- [x] **CRITICAL**: Fix OAuth token handling for v2 endpoints (OAuth still uses v1, bulk operations use v2)
+- [x] **CRITICAL**: Update polling methods to handle v2 response formats
 - [ ] **CRITICAL**: Test v2 endpoints with real credentials to verify they work
 
 **Task 1.3: Essential Integration Components**

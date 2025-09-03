@@ -370,6 +370,124 @@ class TestSnovioClientDomainSearch:
             await mock_snov_client.domain_search(company_name="Test Co", limit=150)
 
 
+class TestSnovioClientV2API:
+    """Test v2 API methods for bulk operations."""
+
+    async def test_start_company_domain_by_name_successful(self, mock_snov_client: SnovioClient) -> None:
+        """Test successful v2 domain search start."""
+        with patch.object(mock_snov_client, "_make_request_v2") as mock_request:
+            mock_request.return_value = {
+                "success": True,
+                "task_hash": "abc123def456",
+                "status": "started",
+                "estimated_time": 30,
+            }
+
+            result = await mock_snov_client.start_company_domain_by_name(
+                company_name="Test Company Ltd", limit=10
+            )
+
+            assert result["success"] is True
+            assert result["task_hash"] == "abc123def456"
+            mock_request.assert_called_once_with(
+                "POST",
+                "company-domain-by-name/start",
+                json_data={"company": "Test Company Ltd", "limit": 10},
+            )
+
+    async def test_start_emails_by_domain_by_name_successful(self, mock_snov_client: SnovioClient) -> None:
+        """Test successful v2 email search start."""
+        with patch.object(mock_snov_client, "_make_request_v2") as mock_request:
+            mock_request.return_value = {
+                "success": True,
+                "task_hash": "xyz789abc123",
+                "status": "started",
+                "estimated_time": 45,
+            }
+
+            result = await mock_snov_client.start_emails_by_domain_by_name(
+                domain="testcompany.com", first_name="John", last_name="Smith"
+            )
+
+            assert result["success"] is True
+            assert result["task_hash"] == "xyz789abc123"
+            mock_request.assert_called_once_with(
+                "POST",
+                "emails-by-domain-by-name/start",
+                json_data={
+                    "domain": "testcompany.com",
+                    "firstName": "John",
+                    "lastName": "Smith",
+                },
+            )
+
+    async def test_get_bulk_task_result_successful(self, mock_snov_client: SnovioClient) -> None:
+        """Test successful v2 task result retrieval."""
+        with patch.object(mock_snov_client, "_make_request_v2") as mock_request:
+            mock_request.return_value = {
+                "status": "completed",
+                "data": {
+                    "domains": [{"domain": "testcompany.com", "confidence": 0.95}],
+                    "total_found": 1,
+                },
+                "credits_consumed": 2,
+            }
+
+            result = await mock_snov_client.get_bulk_task_result("abc123def456")
+
+            assert result["status"] == "completed"
+            assert "data" in result
+            mock_request.assert_called_once_with(
+                "GET", "bulk-task-result", params={"task_hash": "abc123def456"}
+            )
+
+    async def test_domain_search_with_v2_polling(self, mock_snov_client: SnovioClient) -> None:
+        """Test domain search using v2 API with polling."""
+        with patch.object(
+            mock_snov_client, "_domain_search_with_polling_v2"
+        ) as mock_polling:
+            mock_polling.return_value = {
+                "domains": [{"domain": "testcompany.com", "confidence": 0.95}],
+                "total_found": 1,
+            }
+
+            result = await mock_snov_client.domain_search(
+                company_name="Test Company", use_v2=True, use_polling=True
+            )
+
+            assert "domains" in result
+            assert result["domains"][0]["domain"] == "testcompany.com"
+            mock_polling.assert_called_once_with("Test Company", 10)
+
+    async def test_find_email_by_domain_and_name_with_v2(self, mock_snov_client: SnovioClient) -> None:
+        """Test email finding using v2 API with polling."""
+        with patch.object(
+            mock_snov_client, "_email_finder_with_polling_v2"
+        ) as mock_polling:
+            mock_polling.return_value = {
+                "emails": [
+                    {
+                        "email": "john.smith@testcompany.com",
+                        "confidence": 0.92,
+                        "sources": ["pattern_matching"],
+                    }
+                ],
+                "total_found": 1,
+            }
+
+            result = await mock_snov_client.find_email_by_domain_and_name(
+                domain="testcompany.com",
+                first_name="John",
+                last_name="Smith",
+                use_v2=True,
+                use_polling=True,
+            )
+
+            assert "emails" in result
+            assert result["emails"][0]["email"] == "john.smith@testcompany.com"
+            mock_polling.assert_called_once_with("testcompany.com", "John", "Smith")
+
+
 class TestSnovioClientEmailFinder:
     """Test Email Finder API method (verifying existing functionality)."""
 

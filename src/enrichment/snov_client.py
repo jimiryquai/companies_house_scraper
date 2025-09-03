@@ -16,7 +16,7 @@ import logging
 import random
 import time
 from datetime import datetime, timedelta
-from typing import Any, Optional, Union
+from typing import Any, NoReturn, Optional, Union
 from urllib.parse import urljoin
 
 import aiohttp
@@ -96,7 +96,8 @@ class SnovioClient:
     """
 
     # API Configuration
-    BASE_URL = "https://api.snov.io/v1/"
+    BASE_URL = "https://api.snov.io/v1/"  # v1 for auth and basic operations
+    BASE_URL_V2 = "https://api.snov.io/v2/"  # v2 for bulk operations
     TOKEN_ENDPOINT = "oauth/access_token"  # noqa: S105
 
     # Rate limiting (conservative defaults)
@@ -343,7 +344,7 @@ class SnovioClient:
             min_balance = (
                 self.config.get("snov_io", {}).get("limits", {}).get("min_credit_balance", 100)
             )
-            return self._credit_balance > min_balance
+            return bool(self._credit_balance is not None and self._credit_balance > min_balance)
 
         try:
             account_info = await self.get_account_info()
@@ -403,6 +404,42 @@ class SnovioClient:
 
         return await self._execute_request(method, endpoint, params, json_data, headers)
 
+    async def _make_request_v2(
+        self,
+        method: str,
+        endpoint: str,
+        params: Optional[dict[str, Any]] = None,
+        json_data: Optional[dict[str, Any]] = None,
+        headers: Optional[dict[str, str]] = None,
+    ) -> dict[str, Any]:
+        """Make authenticated v2 API request with comprehensive error handling.
+
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            endpoint: API endpoint (relative to v2 base URL)
+            params: Query parameters
+            json_data: JSON request body
+            headers: Additional headers
+
+        Returns:
+            Response data as dictionary
+
+        Raises:
+            Various SnovioError subclasses based on error type
+        """
+        # Check credits before making request
+        if not await self._check_credits():
+            raise SnovioCreditsExhaustedError("Insufficient credits for API request")
+
+        await self._ensure_session()
+        await self._ensure_authenticated()
+        await self._wait_for_rate_limit()
+
+        if not self.session:
+            raise SnovioError("Session not initialized")
+
+        return await self._execute_request_v2(method, endpoint, params, json_data, headers)
+
     async def _execute_request(
         self,
         method: str,
@@ -413,6 +450,43 @@ class SnovioClient:
     ) -> dict[str, Any]:
         """Execute HTTP request with retry logic."""
         url = urljoin(self.BASE_URL, endpoint.lstrip("/"))
+        request_headers = self._prepare_headers(headers)
+
+        self._total_requests += 1
+        self._last_request_time = datetime.now()
+        self._log_request(method, url, params, json_data)
+
+        for attempt in range(self.MAX_RETRIES + 1):
+            try:
+                return await self._single_request_attempt(
+                    method, url, params, json_data, request_headers, attempt
+                )
+            except SnovioRateLimitError as e:
+                if not await self._handle_rate_limit_retry(e, attempt):
+                    raise
+            except (ClientConnectorError, ServerTimeoutError, asyncio.TimeoutError) as e:
+                if not await self._handle_network_retry(e, attempt):
+                    raise
+            except ClientError as e:
+                client_error = SnovioError(f"HTTP client error: {e}")
+                self._record_failure(client_error)
+                raise client_error from e
+
+        # Should not reach here
+        final_error = SnovioError(f"Max retries ({self.MAX_RETRIES}) exceeded")
+        self._record_failure(final_error)
+        raise final_error
+
+    async def _execute_request_v2(
+        self,
+        method: str,
+        endpoint: str,
+        params: Optional[dict[str, Any]],
+        json_data: Optional[dict[str, Any]],
+        headers: Optional[dict[str, str]],
+    ) -> dict[str, Any]:
+        """Execute HTTP request to v2 API with retry logic."""
+        url = urljoin(self.BASE_URL_V2, endpoint.lstrip("/"))
         request_headers = self._prepare_headers(headers)
 
         self._total_requests += 1
@@ -525,7 +599,8 @@ class SnovioClient:
             # Handle successful response
             if 200 <= response.status < 300:
                 self._record_success()
-                return response_data
+                # API responses are dict[str, Any] by contract
+                return dict(response_data)
 
             # Handle error responses - this will raise an exception
             await self._handle_error_response(response, response_data, attempt)
@@ -536,7 +611,7 @@ class SnovioClient:
 
     async def _handle_error_response(
         self, response: aiohttp.ClientResponse, response_data: dict[str, Any], attempt: int
-    ) -> None:
+    ) -> NoReturn:
         """Handle error responses with appropriate exceptions."""
         error_message = response_data.get(
             "message", f"Request failed with status {response.status}"
@@ -664,6 +739,7 @@ class SnovioClient:
 
         async def process_single_request() -> None:
             async with semaphore:
+                assert self.queue_manager is not None  # Already checked above
                 request = await self.queue_manager.dequeue(timeout=1.0)
                 if not request:
                     return
@@ -682,15 +758,21 @@ class SnovioClient:
                     )
 
                     processing_time = time.time() - start_time
+                    assert self.queue_manager is not None  # Already checked above
                     self.queue_manager.mark_processed(request, processing_time)
-                    stats["processed"] = int(stats["processed"]) + 1
+                    processed_count = stats["processed"]
+                    assert isinstance(processed_count, int)
+                    stats["processed"] = processed_count + 1
 
                 except Exception as e:
+                    assert self.queue_manager is not None  # Already checked above
                     self.queue_manager.mark_failed(request)
-                    stats["failed"] = int(stats["failed"]) + 1
+                    failed_count = stats["failed"]
+                    assert isinstance(failed_count, int)
+                    stats["failed"] = failed_count + 1
                     error_list = stats["errors"]
-                    if isinstance(error_list, list):
-                        error_list.append(str(e))
+                    assert isinstance(error_list, list)
+                    error_list.append(str(e))
                     logger.error(f"Failed to process queued request {request.request_id}: {e}")
 
         # Process available requests
@@ -772,6 +854,7 @@ class SnovioClient:
         company_name: str,
         limit: int = 10,
         use_polling: bool = True,
+        use_v2: bool = True,
     ) -> dict[str, Any]:
         """Search for company domains by company name.
 
@@ -779,6 +862,7 @@ class SnovioClient:
             company_name: Name of the company to search domains for
             limit: Maximum number of results to return
             use_polling: Use polling instead of webhook (default True due to API limitations)
+            use_v2: Use v2 API (default True for better reliability)
 
         Returns:
             Domain search results
@@ -791,8 +875,11 @@ class SnovioClient:
         if not company_name or not company_name.strip():
             raise SnovioError("Company name cannot be empty")
 
+        if use_v2 and use_polling:
+            # Use v2 API with polling (recommended approach)
+            return await self._domain_search_with_polling_v2(company_name, limit)
         if use_polling:
-            # Use polling approach due to webhook API limitations
+            # Use v1 polling approach
             return await self._domain_search_with_polling(company_name, limit)
         # Legacy direct approach (may fail with current API)
         params = {
@@ -843,6 +930,33 @@ class SnovioClient:
 
         return await self._make_request("GET", "email-finder", params=params)
 
+    async def find_email_by_domain_and_name(
+        self,
+        domain: str,
+        first_name: str,
+        last_name: str,
+        use_v2: bool = True,
+        use_polling: bool = True,
+    ) -> dict[str, Any]:
+        """Find email by domain and name using v1 or v2 API.
+
+        Args:
+            domain: Target domain
+            first_name: Person's first name
+            last_name: Person's last name
+            use_v2: Use v2 API (default: True)
+            use_polling: Use polling instead of webhook (default: True)
+
+        Returns:
+            Email search results
+
+        Raises:
+            SnovioError: If the request fails
+        """
+        if use_v2 and use_polling:
+            return await self._email_finder_with_polling_v2(domain, first_name, last_name)
+        return await self.find_email_by_name(first_name, last_name, domain)
+
     async def bulk_email_finder(
         self,
         domains: list[str],
@@ -863,6 +977,77 @@ class SnovioClient:
         }
 
         return await self._make_request("POST", "bulk-email-finder", json_data=json_data)
+
+    async def start_emails_by_domain_by_name(
+        self,
+        domain: str,
+        first_name: str,
+        last_name: str,
+        webhook_url: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Start v2 email search by domain and name.
+
+        Args:
+            domain: Target domain
+            first_name: Person's first name
+            last_name: Person's last name
+            webhook_url: Optional webhook URL for async result delivery
+
+        Returns:
+            Task hash for polling results
+        """
+        json_data = {
+            "domain": domain.strip(),
+            "firstName": first_name.strip(),
+            "lastName": last_name.strip(),
+        }
+
+        if webhook_url:
+            json_data["webhook_url"] = webhook_url
+
+        return await self._make_request_v2(
+            "POST", "emails-by-domain-by-name/start", json_data=json_data
+        )
+
+    async def start_company_domain_by_name(
+        self,
+        company_name: str,
+        limit: int = 10,
+        webhook_url: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Start v2 domain search by company name.
+
+        Args:
+            company_name: Name of the company to search domains for
+            limit: Maximum number of results to return
+            webhook_url: Optional webhook URL for async result delivery
+
+        Returns:
+            Task hash for polling results
+        """
+        json_data = {
+            "company": company_name.strip(),
+            "limit": limit,
+        }
+
+        if webhook_url:
+            json_data["webhook_url"] = webhook_url
+
+        return await self._make_request_v2(
+            "POST", "company-domain-by-name/start", json_data=json_data
+        )
+
+    async def get_bulk_task_result(self, task_hash: str) -> dict[str, Any]:
+        """Get v2 bulk task result by hash.
+
+        Args:
+            task_hash: Task hash from start operation
+
+        Returns:
+            Task result data
+        """
+        params = {"task_hash": task_hash}
+        return await self._make_request_v2("GET", "bulk-task-result", params=params)
 
     # Webhook Processing Methods
 
@@ -920,7 +1105,9 @@ class SnovioClient:
             SnovioWebhookError: If payload parsing fails
         """
         try:
-            return json.loads(payload)
+            # JSON payload is expected to be a dict
+            result = json.loads(payload)
+            return dict(result)
         except json.JSONDecodeError as e:
             raise SnovioWebhookError(f"Invalid JSON payload: {e}") from e
 
@@ -1021,7 +1208,6 @@ class SnovioClient:
             "last_request_time": self._last_request_time.isoformat()
             if self._last_request_time
             else None,
-            "failure_count": self._failure_count,
             "credit_balance": self._credit_balance,
             "last_credit_check": self._last_credit_check.isoformat()
             if self._last_credit_check
@@ -1056,9 +1242,7 @@ class SnovioClient:
         if self._last_request_time:
             last_request = self._last_request_time.isoformat()
 
-        last_failure = None
-        if self._last_failure_time:
-            last_failure = self._last_failure_time.isoformat()
+        # Removed unused last_failure variable
 
         last_credit_check = None
         if self._last_credit_check:
@@ -1083,6 +1267,142 @@ class SnovioClient:
                 "last_check": last_credit_check,
             },
         }
+
+    async def _domain_search_with_polling_v2(
+        self,
+        company_name: str,
+        limit: int = 10,
+        max_attempts: int = 30,
+        delay_seconds: int = 10,
+    ) -> dict[str, Any]:
+        """Search for company domains using v2 API with polling.
+
+        Args:
+            company_name: Name of the company to search domains for
+            limit: Maximum number of results to return
+            max_attempts: Maximum polling attempts (default: 30)
+            delay_seconds: Delay between polling attempts (default: 10)
+
+        Returns:
+            Domain search results
+
+        Raises:
+            SnovioError: If the request fails or times out
+        """
+        logger.info(f"Starting v2 domain search for: {company_name}")
+
+        # Step 1: Start the domain search task
+        start_response = await self.start_company_domain_by_name(company_name, limit)
+        task_hash = start_response.get("task_hash")
+
+        if not task_hash:
+            # If no task_hash, this might be a direct response
+            if "domains" in start_response or "status" in start_response:
+                return start_response
+            raise SnovioError("No task_hash received from v2 domain search start API")
+
+        logger.info(f"Received v2 task_hash: {task_hash}, starting polling")
+
+        # Step 2: Poll for results using v2 endpoint
+        return await self._poll_task_result_v2(task_hash, max_attempts, delay_seconds)
+
+    async def _email_finder_with_polling_v2(
+        self,
+        domain: str,
+        first_name: str,
+        last_name: str,
+        max_attempts: int = 30,
+        delay_seconds: int = 10,
+    ) -> dict[str, Any]:
+        """Find email using v2 API with polling.
+
+        Args:
+            domain: Target domain
+            first_name: Person's first name
+            last_name: Person's last name
+            max_attempts: Maximum polling attempts (default: 30)
+            delay_seconds: Delay between polling attempts (default: 10)
+
+        Returns:
+            Email search results
+
+        Raises:
+            SnovioError: If the request fails or times out
+        """
+        logger.info(f"Starting v2 email search for: {first_name} {last_name} @ {domain}")
+
+        # Step 1: Start the email search task
+        start_response = await self.start_emails_by_domain_by_name(domain, first_name, last_name)
+        task_hash = start_response.get("task_hash")
+
+        if not task_hash:
+            # If no task_hash, this might be a direct response
+            if "emails" in start_response or "status" in start_response:
+                return start_response
+            raise SnovioError("No task_hash received from v2 email search start API")
+
+        logger.info(f"Received v2 email task_hash: {task_hash}, starting polling")
+
+        # Step 2: Poll for results using v2 endpoint
+        return await self._poll_task_result_v2(task_hash, max_attempts, delay_seconds)
+
+    async def _poll_task_result_v2(
+        self,
+        task_hash: str,
+        max_attempts: int = 30,
+        delay_seconds: int = 10,
+    ) -> dict[str, Any]:
+        """Poll for v2 task results using task_hash.
+
+        Args:
+            task_hash: Task hash from initial v2 API request
+            max_attempts: Maximum polling attempts
+            delay_seconds: Delay between attempts
+
+        Returns:
+            Task results when completed
+
+        Raises:
+            SnovioError: If polling times out or fails
+        """
+        for attempt in range(max_attempts):
+            try:
+                # Poll the v2 task result endpoint
+                result = await self.get_bulk_task_result(task_hash)
+
+                status = result.get("status")
+
+                if status == "completed":
+                    logger.info(f"V2 task {task_hash} completed after {attempt + 1} attempts")
+                    # Return data dict or result dict as dict[str, Any]
+                    data = result.get("data", result)
+                    return dict(data)
+                if status == "failed":
+                    error_message = result.get("error", "Task failed")
+                    raise SnovioError(f"V2 task failed: {error_message}")
+                if status in ["pending", "processing", "running"]:
+                    logger.debug(f"V2 task {task_hash} still {status}, attempt {attempt + 1}")
+                else:
+                    logger.warning(f"Unknown v2 task status: {status}")
+
+                # Wait before next attempt
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(delay_seconds)
+
+            except SnovioError:
+                # Re-raise Snov.io specific errors
+                raise
+            except Exception as e:
+                logger.error(f"Error polling v2 task {task_hash}: {e}")
+                if attempt == max_attempts - 1:
+                    raise SnovioError(
+                        f"V2 polling failed after {max_attempts} attempts: {e}"
+                    ) from e
+                await asyncio.sleep(delay_seconds)
+
+        raise SnovioError(
+            f"V2 task {task_hash} did not complete within {max_attempts * delay_seconds} seconds"
+        )
 
     async def _domain_search_with_polling(
         self,
@@ -1162,7 +1482,9 @@ class SnovioClient:
 
                 if status == "completed":
                     logger.info(f"Task {task_hash} completed after {attempt + 1} attempts")
-                    return result.get("data", result)
+                    # Return data dict or result dict as dict[str, Any]
+                    data = result.get("data", result)
+                    return dict(data)
                 if status == "failed":
                     error_message = result.get("error", "Task failed")
                     raise SnovioError(f"Task failed: {error_message}")
@@ -1181,7 +1503,9 @@ class SnovioClient:
             except Exception as e:
                 logger.error(f"Error polling task {task_hash}: {e}")
                 if attempt == max_attempts - 1:
-                    raise SnovioError(f"Polling failed after {max_attempts} attempts: {e}")
+                    raise SnovioError(
+                        f"Polling failed after {max_attempts} attempts: {e}"
+                    ) from e
                 await asyncio.sleep(delay_seconds)
 
         raise SnovioError(

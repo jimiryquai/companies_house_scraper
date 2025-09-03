@@ -14,7 +14,7 @@ from typing import Any, Dict, List
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from enrichment.credit_manager import CreditManager
-from enrichment.snov_client import SnovClient
+from enrichment.snov_client import SnovioClient
 
 # Configuration
 DB_PATH = "companies.db"
@@ -29,7 +29,7 @@ class TestRunner:
 
     def __init__(self, webhook_url: str):
         self.webhook_url = webhook_url
-        self.snov_client = SnovClient()
+        self.snov_client = SnovioClient()
         self.credit_manager = CreditManager()
         self.processed_count = 0
         self.success_count = 0

@@ -7,13 +7,15 @@ workflow and queue manager for seamless operation.
 
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 from ..streaming.company_state_manager import CompanyStateManager
 from ..streaming.queue_manager import PriorityQueueManager
+from .credit_aware_workflow import CreditAwareWorkflowCoordinator
 from .credit_manager import CreditManager
 from .dependency_manager import DependencyManager
 from .enrichment_state_manager import EnrichmentState, EnrichmentStateManager
+from .snov_client import SnovioClient
 from .webhook_handler import WebhookHandler
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,7 @@ class StreamingIntegration:
         company_state_manager: CompanyStateManager,
         queue_manager: PriorityQueueManager,
         credit_manager: Optional[CreditManager] = None,
+        snov_client: Optional[SnovioClient] = None,
         webhook_handler: Optional[WebhookHandler] = None,
         database_path: str = "companies.db",
     ):
@@ -47,6 +50,7 @@ class StreamingIntegration:
             company_state_manager: Existing company state manager
             queue_manager: Existing queue manager
             credit_manager: Credit management component
+            snov_client: Snov.io API client for workflow operations
             webhook_handler: Webhook handling component
             database_path: Path to SQLite database
 
@@ -61,6 +65,7 @@ class StreamingIntegration:
         self.company_state_manager = company_state_manager
         self.queue_manager = queue_manager
         self.credit_manager = credit_manager
+        self.snov_client = snov_client
         self.webhook_handler = webhook_handler
         self.database_path = database_path
 
@@ -71,6 +76,17 @@ class StreamingIntegration:
             queue_manager,
             database_path,
         )
+
+        # Initialize credit-aware workflow coordinator if we have all required components
+        self.credit_aware_workflow: Optional[CreditAwareWorkflowCoordinator] = None
+        if credit_manager and snov_client:
+            self.credit_aware_workflow = CreditAwareWorkflowCoordinator(
+                credit_manager=credit_manager,
+                snov_client=snov_client,
+                queue_manager=queue_manager,
+                enrichment_state_manager=self.enrichment_state_manager,
+                database_path=database_path,
+            )
 
         # Statistics tracking
         self.companies_processed = 0
@@ -87,18 +103,20 @@ class StreamingIntegration:
         self,
         company_number: str,
         company_name: str,
+        company_data: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Handle enrichment for newly detected strike-off company.
 
-        This method integrates with the existing _handle_strike_off_company workflow
-        to initiate enrichment for companies that have completed basic processing.
+        This method executes the complete 10-step credit-aware workflow for
+        companies that have been detected as strike-off candidates.
 
         Args:
             company_number: Companies House company number
             company_name: Company name for domain search
+            company_data: Company data from CH REST API (optional)
 
         Returns:
-            True if enrichment was initiated successfully
+            True if enrichment workflow was executed successfully
         """
         try:
             self.companies_processed += 1
@@ -108,29 +126,35 @@ class StreamingIntegration:
                 logger.debug(f"Company {company_number} not eligible for enrichment")
                 return False
 
-            # Check credit availability
-            if self.credit_manager and not await self._check_credits_available():
-                logger.warning("Enrichment skipped due to insufficient credits")
-                await self._mark_enrichment_skipped(company_number, "insufficient_credits")
-                return False
+            # Use credit-aware workflow if available (new approach)
+            if self.credit_aware_workflow:
+                logger.info(f"Executing credit-aware workflow for {company_number}")
 
-            # Initiate domain search first (no officers needed upfront)
-            # Officers will be queued AFTER domain search succeeds
-            success = await self.dependency_manager.initiate_domain_search_first(
-                company_number,
-                company_name,
-            )
-
-            if success:
-                self.enrichment_initiated += 1
-                await self.enrichment_state_manager.update_enrichment_state(
-                    company_number,
-                    EnrichmentState.DOMAIN_QUEUED.value,
-                    # officers_count will be updated when officers are actually fetched
+                # Execute the complete 10-step workflow
+                workflow_result = await self.credit_aware_workflow.execute_workflow(
+                    company_number=company_number,
+                    company_name=company_name,
+                    company_data=company_data or {"company_name": company_name},
                 )
-                logger.info(f"Domain search initiated for company {company_number}")
 
-            return success
+                # Update enrichment state based on workflow result
+                await self._update_enrichment_state_from_workflow(company_number, workflow_result)
+
+                # Count as initiated if workflow started successfully
+                if workflow_result["final_status"] != "error":
+                    self.enrichment_initiated += 1
+
+                # Count as completed if workflow reached completion
+                if workflow_result["final_status"] == "completed":
+                    self.enrichment_completed += 1
+
+                return workflow_result["final_status"] != "error"
+
+            # Fallback to legacy approach (backward compatibility)
+            logger.warning(
+                f"Credit-aware workflow not available, using legacy approach for {company_number}"
+            )
+            return await self._legacy_enrichment_workflow(company_number, company_name)
 
         except Exception as e:
             logger.error(f"Error handling enrichment for {company_number}: {e}")
@@ -433,10 +457,119 @@ class StreamingIntegration:
             Metrics data for monitoring
         """
         stats = self.get_integration_statistics()
-        return {
+        metrics = {
             "integration_companies_processed": stats["companies_processed"],
             "integration_enrichment_initiated": stats["enrichment_initiated"],
             "integration_enrichment_completed": stats["enrichment_completed"],
             "integration_enrichment_failed": stats["enrichment_failed"],
             "integration_success_rate": stats["success_rate"],
         }
+
+        # Add credit-aware workflow metrics if available
+        if self.credit_aware_workflow:
+            workflow_stats = self.credit_aware_workflow.get_workflow_statistics()
+            metrics.update(
+                {
+                    "workflow_credit_aware_started": workflow_stats["workflows_started"],
+                    "workflow_credit_aware_completed": workflow_stats["workflows_completed"],
+                    "workflow_credit_blocked": workflow_stats["workflows_credit_blocked"],
+                    "workflow_domain_searches": workflow_stats["domain_searches_completed"],
+                    "workflow_email_searches": workflow_stats["email_searches_completed"],
+                    "workflow_success_rate": workflow_stats["success_rate"],
+                }
+            )
+
+        return metrics
+
+    async def _update_enrichment_state_from_workflow(
+        self, company_number: str, workflow_result: Dict[str, Any]
+    ) -> None:
+        """Update enrichment state based on workflow result.
+
+        Args:
+            company_number: Company number
+            workflow_result: Result from credit-aware workflow execution
+        """
+        try:
+            final_status = workflow_result.get("final_status", "unknown")
+
+            if final_status == "completed":
+                await self.enrichment_state_manager.update_enrichment_state(
+                    company_number,
+                    EnrichmentState.COMPLETED.value,
+                    total_credits_consumed=workflow_result.get("total_credits_consumed", 0),
+                )
+            elif final_status == "credit_exhausted_before_domain":
+                await self.enrichment_state_manager.update_enrichment_state(
+                    company_number,
+                    EnrichmentState.CREDIT_EXHAUSTED.value,
+                    skip_reason="credits_exhausted_before_domain_search",
+                )
+            elif final_status == "credit_exhausted_before_email":
+                await self.enrichment_state_manager.update_enrichment_state(
+                    company_number,
+                    EnrichmentState.DOMAIN_COMPLETED.value,
+                    skip_reason="credits_exhausted_before_email_search",
+                )
+            elif final_status == "no_domain_found":
+                await self.enrichment_state_manager.update_enrichment_state(
+                    company_number,
+                    EnrichmentState.DOMAIN_FAILED.value,
+                    skip_reason="no_domain_found",
+                )
+            elif final_status == "no_officers_found":
+                await self.enrichment_state_manager.update_enrichment_state(
+                    company_number,
+                    EnrichmentState.OFFICERS_FAILED.value,
+                    skip_reason="no_officers_found",
+                )
+            elif final_status == "error":
+                await self.enrichment_state_manager.update_enrichment_state(
+                    company_number,
+                    EnrichmentState.FAILED.value,
+                    error_message=workflow_result.get("error", "workflow_execution_error"),
+                )
+            else:
+                # Set to in-progress for unknown statuses
+                await self.enrichment_state_manager.update_enrichment_state(
+                    company_number, EnrichmentState.IN_PROGRESS.value, workflow_status=final_status
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to update enrichment state for {company_number}: {e}")
+
+    async def _legacy_enrichment_workflow(self, company_number: str, company_name: str) -> bool:
+        """Legacy enrichment workflow for backward compatibility.
+
+        Args:
+            company_number: Company number
+            company_name: Company name
+
+        Returns:
+            True if enrichment was initiated successfully
+        """
+        try:
+            # Check credit availability using old approach
+            if self.credit_manager and not await self._check_credits_available():
+                logger.warning("Legacy enrichment skipped due to insufficient credits")
+                await self._mark_enrichment_skipped(company_number, "insufficient_credits")
+                return False
+
+            # Use old dependency manager approach
+            success = await self.dependency_manager.initiate_domain_search_first(
+                company_number,
+                company_name,
+            )
+
+            if success:
+                await self.enrichment_state_manager.update_enrichment_state(
+                    company_number,
+                    EnrichmentState.DOMAIN_QUEUED.value,
+                )
+                logger.info(f"Legacy domain search initiated for company {company_number}")
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Legacy workflow failed for {company_number}: {e}")
+            return False

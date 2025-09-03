@@ -104,6 +104,7 @@ class EnrichmentCoordinator:
                 company_state_manager=self.company_state_manager,
                 queue_manager=self.queue_manager,
                 credit_manager=self.credit_manager,
+                snov_client=self.snov_client,
                 webhook_handler=self.webhook_handler,
                 database_path=self.database_path,
             )
