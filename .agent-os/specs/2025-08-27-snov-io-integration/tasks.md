@@ -184,23 +184,23 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 - [ ] Create simple test script to validate entire workflow
 
 **Task 2.3.1: Credit Tracking Validation**
-- [ ] **VALIDATION**: Test real-time balance checking with corrected `get-balance` endpoint
-- [ ] **VALIDATION**: Verify operation-based credit tracking accuracy vs actual Snov.io consumption
-- [ ] **VALIDATION**: Test credit exhaustion handling (when balance reaches 0)
-- [ ] **VALIDATION**: Ensure CH REST API continues regardless of Snov.io credit status
-- [ ] **VALIDATION**: Test credit allocation scaling (5k → 20k → 50k → 100k)
-- [ ] **VALIDATION**: Document actual credit costs per operation type (domain search, email finder)
+- [x] **VALIDATION**: Test real-time balance checking with corrected `get-balance` endpoint
+- [x] **VALIDATION**: Verify operation-based credit tracking accuracy vs actual Snov.io consumption
+- [x] **VALIDATION**: Test credit exhaustion handling (when balance reaches 0)
+- [x] **VALIDATION**: Ensure CH REST API continues regardless of Snov.io credit status
+- [x] **VALIDATION**: Test credit allocation scaling (5k → 20k → 50k → 100k)
+- [x] **VALIDATION**: Document actual credit costs per operation type (domain search, email finder)
 
 **Task 2.3.2: 10-Step Credit-Aware Workflow E2E Validation**
-- [ ] **E2E TEST**: Validate Step 1-3: CH Streaming → CH REST API → strike-off filter
-- [ ] **E2E TEST**: Validate Step 4: Credit check before domain search (`GET /v1/get-balance`)
-- [ ] **E2E TEST**: Validate Step 5-6: Domain search (v2 API) + post-operation credit tracking
-- [ ] **E2E TEST**: Validate Step 7: Officer fetch from CH REST API (if domain found)
-- [ ] **E2E TEST**: Validate Step 8: Credit check before email search (`GET /v1/get-balance`)
-- [ ] **E2E TEST**: Validate Step 9-10: Email search (v2 API) + final credit tracking
-- [ ] **E2E TEST**: Test workflow with credits = 0 (should stop Snov.io, continue CH API)
-- [ ] **E2E TEST**: Test workflow with operations that find no results (may consume 0 credits)
-- [ ] **E2E TEST**: Verify complete workflow saves data to all tables (companies, domains, officers, emails, credit_usage)
+- [x] **E2E TEST**: Validate Step 1-3: CH Streaming → CH REST API → strike-off filter
+- [x] **E2E TEST**: Validate Step 4: Credit check before domain search (`GET /v1/get-balance`)
+- [x] **E2E TEST**: Validate Step 5-6: Domain search (v2 API) + post-operation credit tracking
+- [x] **E2E TEST**: Validate Step 7: Officer fetch from CH REST API (if domain found)
+- [x] **E2E TEST**: Validate Step 8: Credit check before email search (`GET /v1/get-balance`)
+- [x] **E2E TEST**: Validate Step 9-10: Email search (v2 API) + final credit tracking
+- [x] **E2E TEST**: Test workflow with credits = 0 (should stop Snov.io, continue CH API)
+- [x] **E2E TEST**: Test workflow with operations that find no results (may consume 0 credits)
+- [x] **E2E TEST**: Verify complete workflow saves data to all tables (companies, domains, officers, emails, credit_usage)
 
 ### Phase 3: Optimization and Enhancement (Week 3)
 
