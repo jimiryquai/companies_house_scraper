@@ -11,14 +11,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-try:
-    from streaming.health_endpoints import HealthStatus
-except ImportError:
-    try:
-        from src.streaming.health_endpoints import HealthStatus
-    except ImportError:
-        # For testing or when streaming is not available
-        HealthStatus = None
+from streaming.health_endpoints import HealthStatus
 
 logger = logging.getLogger(__name__)
 

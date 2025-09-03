@@ -25,10 +25,9 @@ dependencies = [
     "flask>=3.1.2",
 ]
 
-# Add tool.setuptools table for packages
+# Add tool.setuptools table for py_modules
 [tool.setuptools]
-packages = ["enrichment", "streaming", "monitoring"]
-package-dir = {"" = "src"}
+py-modules = ["strike_off_scraper"]
 
 [dependency-groups]
 dev = [
@@ -71,7 +70,6 @@ markers = [
     "performance: marks tests that perform load/performance testing",
 ]
 asyncio_mode = "auto"
-pythonpath = ["src"]
 
 # MyPy configuration - strict type checking
 [tool.mypy]
