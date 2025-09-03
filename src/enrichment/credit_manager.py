@@ -1,8 +1,8 @@
 """Credit consumption tracking and monitoring for Snov.io API.
 
-This module provides comprehensive credit management for Snov.io API operations,
-including consumption tracking, exhaustion handling, and integration with existing
-database schema and monitoring systems.
+This module provides simple credit management for Snov.io API operations,
+using a straightforward exhaustion policy - stops Snov.io calls when credits reach zero
+without daily rationing or complex thresholds. Integrates with existing database schema.
 """
 
 import asyncio
@@ -39,29 +39,23 @@ class CreditManager:
     def __init__(
         self,
         database_path: str = "companies.db",
-        min_credit_threshold: int = 100,
-        alert_threshold: int = 500,
+        monthly_credit_allocation: int = 5000,
         cache_ttl_minutes: int = 5,
     ):
         """Initialize credit manager.
 
         Args:
             database_path: Path to SQLite database
-            min_credit_threshold: Minimum credits before blocking operations
-            alert_threshold: Credit level that triggers alerts
+            monthly_credit_allocation: Starting monthly credit allocation (default: 5000)
             cache_ttl_minutes: Cache TTL for credit balance checks
 
-        Raises:
-            ValueError: If thresholds are invalid
+        Note:
+            Uses simple exhaustion policy - stops Snov.io operations when credits reach zero.
+            No daily rationing or restrictive thresholds.
+            Credit allocation is configurable and can be scaled (20k, 50k, 100k).
         """
-        if min_credit_threshold < 0 or alert_threshold < 0:
-            raise ValueError("Credit thresholds must be non-negative")
-        if min_credit_threshold > alert_threshold:
-            raise ValueError("Minimum threshold cannot exceed alert threshold")
-
         self.database_path = database_path
-        self.min_credit_threshold = min_credit_threshold
-        self.alert_threshold = alert_threshold
+        self.monthly_credit_allocation = monthly_credit_allocation
         self.cache_ttl_minutes = cache_ttl_minutes
 
         # Cache for credit balance to reduce database queries
@@ -105,9 +99,8 @@ class CreditManager:
                     result = cursor.fetchone()
                     total_consumed = int(result[0]) if result else 0
 
-                    # For now, assume starting balance (would be configurable in production)
-                    # This should be updated when we receive credit balance from Snov.io API
-                    starting_balance = 5000  # Default starting balance
+                    # Use configurable monthly allocation
+                    starting_balance = self.monthly_credit_allocation
                     current_balance = max(0, starting_balance - total_consumed)
 
                     # Update cache
@@ -136,7 +129,7 @@ class CreditManager:
 
         try:
             available_credits = await self.check_available_credits()
-            return available_credits >= (self.min_credit_threshold + credits_needed)
+            return available_credits >= credits_needed
 
         except Exception as e:
             logger.error(f"Error checking credit availability: {e}")
@@ -399,6 +392,28 @@ class CreditManager:
                 "timestamp": datetime.now().isoformat(),
             }
 
+    def update_monthly_allocation(self, new_allocation: int) -> None:
+        """Update the monthly credit allocation.
+
+        Args:
+            new_allocation: New monthly credit allocation (5000, 20000, 50000, 100000)
+
+        Note:
+            This allows scaling up credits as needed without system restart.
+            Clears cache to force balance recalculation.
+        """
+        if new_allocation <= 0:
+            raise ValueError("Credit allocation must be positive")
+
+        logger.info(
+            f"Updating monthly credit allocation from {self.monthly_credit_allocation} to {new_allocation}"
+        )
+        self.monthly_credit_allocation = new_allocation
+
+        # Clear cache to force recalculation
+        self._cached_balance = None
+        self._last_balance_check = None
+
     def get_metrics(self) -> dict[str, Any]:
         """Get credit management metrics.
 
@@ -407,9 +422,9 @@ class CreditManager:
         """
         return {
             "credit_current_balance": self._cached_balance or 0,
-            "credit_min_threshold": self.min_credit_threshold,
-            "credit_alert_threshold": self.alert_threshold,
+            "credit_monthly_allocation": self.monthly_credit_allocation,
             "credit_total_consumed": self.total_credits_consumed,
             "credit_operations_tracked": self.operations_tracked,
             "credit_cache_valid": self._is_cache_valid(),
+            "credit_exhausted": (self._cached_balance or 0) <= 0,
         }

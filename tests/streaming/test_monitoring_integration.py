@@ -55,19 +55,20 @@ class TestMonitoringIntegration:
     async def mock_api_usage_monitor(self):
         """Create mock API usage monitor for ComprehensiveMetricsCollector."""
         mock_monitor = MagicMock(spec=RealTimeAPIUsageMonitor)
-        
+
         # Configure the mock to return proper statistics structure
         mock_stats = {
-            'current_window': {
-                'usage_percentage': 25.0,
-                'calls_remaining': 450,
-                'window_end_time': '2024-01-01T12:00:00Z'
+            "current_window": {
+                "usage_percentage": 25.0,
+                "calls_remaining": 450,
+                "window_end_time": "2024-01-01T12:00:00Z",
             },
-            'usage_level': 'safe',
-            'rate_limit': 600
+            "usage_level": "safe",
+            "rate_limit": 600,
         }
         mock_monitor.get_current_statistics = MagicMock(return_value=mock_stats)
         return mock_monitor
+
     @pytest.fixture
     async def mock_rate_limit_monitor(self):
         """Create mock rate limit monitor for ComprehensiveMetricsCollector."""
@@ -83,7 +84,13 @@ class TestMonitoringIntegration:
         return mock_manager
 
     @pytest.fixture
-    async def metrics_collector(self, mock_queue_manager, mock_api_usage_monitor, mock_rate_limit_monitor, mock_state_manager):
+    async def metrics_collector(
+        self,
+        mock_queue_manager,
+        mock_api_usage_monitor,
+        mock_rate_limit_monitor,
+        mock_state_manager,
+    ):
         """Create test metrics collector with proper dependencies."""
         return ComprehensiveMetricsCollector(
             queue_manager=mock_queue_manager,
@@ -93,11 +100,19 @@ class TestMonitoringIntegration:
         )
 
     @pytest.fixture
-    async def dashboard(self, config, metrics_collector, mock_api_usage_monitor, mock_rate_limit_monitor, mock_state_manager, mock_queue_manager):
+    async def dashboard(
+        self,
+        config,
+        metrics_collector,
+        mock_api_usage_monitor,
+        mock_rate_limit_monitor,
+        mock_state_manager,
+        mock_queue_manager,
+    ):
         """Create test dashboard."""
-        # Create mock ServiceRecoveryManager  
+        # Create mock ServiceRecoveryManager
         mock_recovery_manager = MagicMock(spec=ServiceRecoveryManager)
-        
+
         return AutonomousOperationDashboard(
             metrics_collector=metrics_collector,
             api_usage_monitor=mock_api_usage_monitor,
@@ -154,22 +169,22 @@ class TestAutonomousOperationDashboard:
             rest_api_key="test_rest_key_123456789",
             database_path=":memory:",
         )
-        
+
         # Create mock dependencies for ComprehensiveMetricsCollector
         mock_queue_manager = MagicMock(spec=PriorityQueueManager)
         mock_api_usage_monitor = MagicMock(spec=RealTimeAPIUsageMonitor)
         mock_rate_limit_monitor = MagicMock(spec=RateLimitMonitor)
         mock_state_manager = MagicMock(spec=CompanyStateManager)
-        
+
         metrics_collector = ComprehensiveMetricsCollector(
             queue_manager=mock_queue_manager,
             api_usage_monitor=mock_api_usage_monitor,
             rate_limit_monitor=mock_rate_limit_monitor,
             state_manager=mock_state_manager,
         )
-        # Create mock ServiceRecoveryManager  
+        # Create mock ServiceRecoveryManager
         mock_recovery_manager = MagicMock(spec=ServiceRecoveryManager)
-        
+
         return AutonomousOperationDashboard(
             metrics_collector=metrics_collector,
             api_usage_monitor=mock_api_usage_monitor,
@@ -184,7 +199,9 @@ class TestAutonomousOperationDashboard:
         assert dashboard is not None
         assert dashboard.start_time is not None
 
-    @pytest.mark.skip(reason="Method uses asyncio.run() which conflicts with pytest async environment")
+    @pytest.mark.skip(
+        reason="Method uses asyncio.run() which conflicts with pytest async environment"
+    )
     async def test_get_status_summary(self, dashboard):
         """Test status summary generation."""
         summary = dashboard.get_status_summary()
@@ -207,7 +224,9 @@ class TestAutonomousOperationDashboard:
         assert "recovery_status" in data
         assert "operational_recommendations" in data
 
-    @pytest.mark.skip(reason="Method uses asyncio.run() which conflicts with pytest async environment")
+    @pytest.mark.skip(
+        reason="Method uses asyncio.run() which conflicts with pytest async environment"
+    )
     async def test_export_for_monitoring_platform(self, dashboard):
         """Test monitoring platform export functionality."""
         with patch("json.dumps") as mock_dumps:
@@ -455,7 +474,7 @@ class TestHighVolumeStreamingScenarios:
         mock_api_usage_monitor = MagicMock(spec=RealTimeAPIUsageMonitor)
         mock_rate_limit_monitor = MagicMock(spec=RateLimitMonitor)
         mock_state_manager = MagicMock(spec=CompanyStateManager)
-        
+
         metrics_collector = ComprehensiveMetricsCollector(
             queue_manager=mock_queue_manager,
             api_usage_monitor=mock_api_usage_monitor,
@@ -464,7 +483,7 @@ class TestHighVolumeStreamingScenarios:
         )
         # Create mock ServiceRecoveryManager
         mock_recovery_manager = MagicMock(spec=ServiceRecoveryManager)
-        
+
         dashboard = AutonomousOperationDashboard(
             metrics_collector=metrics_collector,
             api_usage_monitor=mock_api_usage_monitor,

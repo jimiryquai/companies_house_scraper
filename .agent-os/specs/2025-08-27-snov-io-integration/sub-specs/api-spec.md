@@ -138,10 +138,8 @@ This is the API specification for the spec detailed in @.agent-os/specs/2025-08-
         "email_finder": 800,
         "email_verifier": 150
     },
-    "alerts": {
-        "threshold_80_percent": false,
-        "threshold_95_percent": false
-    }
+    "status": "available",
+    "exhausted": false
 }
 ```
 
@@ -187,9 +185,9 @@ class DiscoveryController:
 
 **Responsibilities**:
 - Monitor Snov.io credit usage
-- Provide usage statistics and analytics
-- Handle credit alerts and notifications
-- Return current balance information
+- Provide usage statistics and analytics  
+- Return current balance and exhaustion status
+- Track monthly credit consumption without restrictive limits
 
 **Methods**:
 ```python
@@ -239,7 +237,7 @@ class EmailDiscoveryRequest:
 **Custom Exceptions**:
 - `InvalidWebhookSignatureError`: Invalid webhook signature
 - `SnovApiError`: Snov.io API related errors
-- `CreditLimitExceededError`: Credit balance insufficient
+- `CreditsExhaustedError`: No credits remaining for Snov.io operations
 - `InvalidDiscoveryRequestError`: Malformed discovery requests
 
 **Error Response Format**:

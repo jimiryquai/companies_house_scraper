@@ -53,6 +53,7 @@ def get_progress():
         print(f"Error checking progress: {e}")
         return False
 
+
 if __name__ == "__main__":
     ready = get_progress()
     sys.exit(0 if ready else 1)

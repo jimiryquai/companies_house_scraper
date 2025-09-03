@@ -345,9 +345,11 @@ class StreamingIntegration:
         try:
             # Queue officers fetch via CH REST API
             request_id = await self.company_state_manager.queue_officers_fetch(company_number)
-            logger.info(f"Queued officers fetch for company {company_number}, request_id: {request_id}")
+            logger.info(
+                f"Queued officers fetch for company {company_number}, request_id: {request_id}"
+            )
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to queue officers fetch for company {company_number}: {e}")
             raise

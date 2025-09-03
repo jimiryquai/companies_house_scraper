@@ -11,9 +11,10 @@ import logging
 import os
 import signal
 import sys
-import yaml
 from datetime import datetime
 from typing import Any, Optional
+
+import yaml
 
 # Import streaming components
 from src.streaming import (
@@ -133,7 +134,7 @@ class StreamingService:
                 config=self.config,
                 queue_manager=self.queue_manager,
                 company_state_manager=self.company_state_manager,
-                enrichment_callback=None  # Will be set up later if needed
+                enrichment_callback=None,  # Will be set up later if needed
             )
 
             # Initialize health monitor (will be set up after client is ready)
@@ -610,7 +611,7 @@ async def main() -> None:
 
         if not streaming_api_key:
             raise ValueError("streaming_key not found in config.yaml")
-        
+
         if not rest_api_key:
             raise ValueError("REST API key not found in config.yaml")
 

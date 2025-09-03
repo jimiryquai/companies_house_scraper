@@ -7,9 +7,7 @@ event detection and the Snov.io enrichment workflow.
 
 import asyncio
 import base64
-import json
 import logging
-from datetime import datetime
 from typing import Any, Optional
 
 import aiohttp
@@ -24,12 +22,13 @@ logger = logging.getLogger("streaming_service")  # Use same logger as streaming 
 
 class CompaniesHouseAPIError(Exception):
     """Raised when Companies House API operations fail."""
+
     pass
 
 
 class CompaniesHouseAPIProcessor:
     """Processes queued Companies House REST API requests.
-    
+
     This processor dequeues requests for company status checks and officer fetching,
     makes actual HTTP calls to the Companies House REST API, processes responses,
     and triggers the Snov.io enrichment workflow for strike-off companies.
@@ -93,11 +92,8 @@ class CompaniesHouseAPIProcessor:
                 "User-Agent": "companies-house-scraper/1.0",
                 "Accept": "application/json",
             }
-            
-            self.session = aiohttp.ClientSession(
-                timeout=timeout,
-                headers=headers
-            )
+
+            self.session = aiohttp.ClientSession(timeout=timeout, headers=headers)
             logger.info("HTTP session initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize HTTP session: {e}")
@@ -165,7 +161,9 @@ class CompaniesHouseAPIProcessor:
             elif request.endpoint.startswith("/company/"):
                 await self._handle_company_status_request(request)
             else:
-                logger.warning(f"Unknown CH API endpoint in request {request.request_id}: {request.endpoint}")
+                logger.warning(
+                    f"Unknown CH API endpoint in request {request.request_id}: {request.endpoint}"
+                )
                 self.queue_manager.mark_failed(request)
                 self.requests_failed += 1
                 return
@@ -200,7 +198,7 @@ class CompaniesHouseAPIProcessor:
         try:
             # Make API call to Companies House
             url = f"{self.api_base_url}/company/{company_number}"
-            
+
             if not self.session:
                 raise CompaniesHouseAPIError("HTTP session not initialized")
 
@@ -209,12 +207,12 @@ class CompaniesHouseAPIProcessor:
                     logger.warning(f"Company {company_number} not found (404)")
                     # Update state to completed (not strike-off)
                     await self.company_state_manager.update_state(
-                        company_number, 
+                        company_number,
                         ProcessingState.COMPLETED.value,
-                        last_error="Company not found (404)"
+                        last_error="Company not found (404)",
                     )
                     return
-                
+
                 if response.status == 429:
                     logger.warning(f"Rate limit hit (429) for company {company_number}")
                     # Handle 429 response
@@ -222,7 +220,7 @@ class CompaniesHouseAPIProcessor:
                         company_number, request.request_id
                     )
                     # Requeue the request (will be handled by calling function)
-                    raise CompaniesHouseAPIError(f"Rate limit hit (429)")
+                    raise CompaniesHouseAPIError("Rate limit hit (429)")
 
                 if response.status != 200:
                     raise CompaniesHouseAPIError(
@@ -231,60 +229,71 @@ class CompaniesHouseAPIProcessor:
 
                 # Parse response
                 company_data = await response.json()
-                
+
                 # Extract company status detail
                 company_status_detail = company_data.get("company_status_detail")
                 company_name = company_data.get("company_name", "Unknown")
                 company_status = company_data.get("company_status", "Unknown")
 
-                logger.info(f"Company {company_number} - status: {company_status}, status_detail: {company_status_detail}")
+                logger.info(
+                    f"Company {company_number} - status: {company_status}, status_detail: {company_status_detail}"
+                )
 
                 # Get current state to check if we've already processed this company
                 current_state = await self.company_state_manager.get_state(company_number)
-                current_processing_state = current_state.get("processing_state") if current_state else None
-                
+                current_processing_state = (
+                    current_state.get("processing_state") if current_state else None
+                )
+
                 # Only update to STATUS_FETCHED if we're not already at a later state
-                if current_processing_state not in [ProcessingState.STRIKE_OFF_CONFIRMED.value, ProcessingState.COMPLETED.value]:
+                if current_processing_state not in [
+                    ProcessingState.STRIKE_OFF_CONFIRMED.value,
+                    ProcessingState.COMPLETED.value,
+                ]:
                     await self.company_state_manager.update_state(
-                        company_number,
-                        ProcessingState.STATUS_FETCHED.value
+                        company_number, ProcessingState.STATUS_FETCHED.value
                     )
 
                 # Check if this is a strike-off status
                 if self._is_strike_off_status(company_status_detail):
-                    logger.info(f"🎯 STRIKE-OFF DETECTED: {company_number} - {company_status_detail}")
-                    
+                    logger.info(
+                        f"🎯 STRIKE-OFF DETECTED: {company_number} - {company_status_detail}"
+                    )
+
                     # Only process if we haven't already confirmed this as strike-off
                     if current_processing_state != ProcessingState.STRIKE_OFF_CONFIRMED.value:
                         # Update state to strike-off confirmed
                         await self.company_state_manager.update_state(
-                            company_number,
-                            ProcessingState.STRIKE_OFF_CONFIRMED.value
+                            company_number, ProcessingState.STRIKE_OFF_CONFIRMED.value
                         )
-                        
+
                         # Update state to completed for strike-off companies before enrichment
                         await self.company_state_manager.update_state(
-                            company_number,
-                            ProcessingState.COMPLETED.value
+                            company_number, ProcessingState.COMPLETED.value
                         )
-                        
+
                         # Trigger enrichment workflow if callback available
                         if self.enrichment_callback:
                             try:
                                 await self.enrichment_callback(company_number, company_name)
-                                logger.info(f"Enrichment triggered for strike-off company {company_number}")
+                                logger.info(
+                                    f"Enrichment triggered for strike-off company {company_number}"
+                                )
                             except Exception as e:
-                                logger.error(f"Error triggering enrichment for {company_number}: {e}")
-                        
+                                logger.error(
+                                    f"Error triggering enrichment for {company_number}: {e}"
+                                )
+
                         self.strike_off_companies_detected += 1
                     else:
-                        logger.info(f"Company {company_number} already processed as strike-off, skipping enrichment trigger")
+                        logger.info(
+                            f"Company {company_number} already processed as strike-off, skipping enrichment trigger"
+                        )
                 else:
                     logger.info(f"Company {company_number} not strike-off, completing processing")
                     # Update state to completed (not a strike-off company)
                     await self.company_state_manager.update_state(
-                        company_number,
-                        ProcessingState.COMPLETED.value
+                        company_number, ProcessingState.COMPLETED.value
                     )
 
                 self.companies_status_fetched += 1
@@ -308,7 +317,7 @@ class CompaniesHouseAPIProcessor:
         try:
             # Make API call to Companies House
             url = f"{self.api_base_url}/company/{company_number}/officers"
-            
+
             if not self.session:
                 raise CompaniesHouseAPIError("HTTP session not initialized")
 
@@ -319,10 +328,10 @@ class CompaniesHouseAPIProcessor:
                     await self.company_state_manager.update_state(
                         company_number,
                         ProcessingState.COMPLETED.value,
-                        last_error="Officers not found (404)"
+                        last_error="Officers not found (404)",
                     )
                     return
-                
+
                 if response.status == 429:
                     logger.warning(f"Rate limit hit (429) for officers of company {company_number}")
                     # Handle 429 response
@@ -330,7 +339,7 @@ class CompaniesHouseAPIProcessor:
                         company_number, request.request_id
                     )
                     # Requeue the request
-                    raise CompaniesHouseAPIError(f"Rate limit hit (429)")
+                    raise CompaniesHouseAPIError("Rate limit hit (429)")
 
                 if response.status != 200:
                     raise CompaniesHouseAPIError(
@@ -345,15 +354,13 @@ class CompaniesHouseAPIProcessor:
 
                 # Update state to officers fetched
                 await self.company_state_manager.update_state(
-                    company_number,
-                    ProcessingState.OFFICERS_FETCHED.value
+                    company_number, ProcessingState.OFFICERS_FETCHED.value
                 )
 
                 # TODO: Store officers data in database if needed
                 # For now, just complete the processing
                 await self.company_state_manager.update_state(
-                    company_number,
-                    ProcessingState.COMPLETED.value
+                    company_number, ProcessingState.COMPLETED.value
                 )
 
                 self.officers_fetched += 1

@@ -71,7 +71,7 @@ class WebhookHandler:
 
     async def handle_webhook(self, request: Request) -> Response:
         """Handle incoming webhook request.
-        
+
         Supports both POST (for actual webhook data) and GET (for URL validation).
 
         Args:
@@ -352,13 +352,13 @@ class WebhookHandler:
 
     async def _handle_webhook_validation(self, request: Request) -> Response:
         """Handle GET request for webhook URL validation.
-        
+
         Snov.io sends GET requests to validate webhook URLs during setup.
         This endpoint responds with a simple confirmation.
-        
+
         Args:
             request: HTTP GET request
-            
+
         Returns:
             Simple validation response
         """

@@ -16,7 +16,7 @@ The integration leverages our existing queue system to efficiently batch request
 
 **As a business developer**, I want to find company domains automatically so that I can research company websites and digital presence.
 
-**As a system administrator**, I want credit usage tracking so that I can monitor and control API costs.
+**As a system administrator**, I want credit usage tracking so that I can monitor monthly consumption without restrictive daily limits.
 
 **As a data consumer**, I want cached email and domain data so that I don't repeatedly consume API credits for the same information.
 
@@ -47,15 +47,24 @@ The integration leverages our existing queue system to efficiently batch request
 
 ## Expected Deliverable
 
-A complete Snov.io integration system that:
+A complete Snov.io integration system that implements a 10-step credit-aware workflow:
 
-1. **Discovers company domains** from Companies House company names with 80%+ success rate
-2. **Finds officer email addresses** using discovered domains and officer names
-3. **Manages API credits** with tracking, alerting, and budget controls
-4. **Caches all data** to minimize API usage and costs
-5. **Processes requests efficiently** through the existing queue system
-6. **Handles bulk operations** via webhook callbacks
-7. **Provides monitoring** for success rates, credit usage, and system health
+1. **Monitors CH Streaming API** for company change events
+2. **Calls CH REST API** for every company to get `company_status_detail`
+3. **Filters strike-off companies** (`company_status_detail == "active-proposal-to-strike-off"`)
+4. **Checks credits before domain search** using `GET /v1/get-balance`
+5. **Searches company domains** (only if credits > 0) using Snov.io v2 API with polling
+6. **Records actual credit consumption** via post-operation balance check
+7. **Fetches company officers** (if domain found) via CH REST API
+8. **Checks credits before email search** using `GET /v1/get-balance`
+9. **Finds officer emails** (only if credits > 0) using Snov.io v2 API with polling
+10. **Records final credit consumption** and updates balance tracking
+
+**Key Features**:
+- **Credit-Aware Operations**: Never assumes credit consumption, always checks before/after
+- **Non-Blocking CH API**: Companies House REST API continues regardless of Snov.io credit status  
+- **Simple Exhaustion Policy**: Stop Snov.io calls when credits = 0, no daily rationing
+- **Real Credit Consumption Tracking**: Operation-based tracking with actual balance verification
 
 Success criteria:
 - Domain discovery for 80% of active companies

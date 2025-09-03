@@ -284,7 +284,9 @@ def main() -> None:  # noqa: C901
     # Check current progress first
     current_companies_with_officers = get_companies_with_officers_count()
     if current_companies_with_officers >= MAX_COMPANIES:
-        logger.info(f"Already have officers for {current_companies_with_officers} companies (>= {MAX_COMPANIES})")
+        logger.info(
+            f"Already have officers for {current_companies_with_officers} companies (>= {MAX_COMPANIES})"
+        )
         logger.info("Officer import target reached. Ready to enable streaming API.")
         return
 
@@ -349,7 +351,9 @@ def main() -> None:  # noqa: C901
             current_total = current_companies_with_officers + processed_count
             if current_total >= MAX_COMPANIES:
                 logger.info(f"Reached target of {MAX_COMPANIES} companies with officers!")
-                logger.info(f"Total processed: {processed_count}, Total companies with officers: {current_total}")
+                logger.info(
+                    f"Total processed: {processed_count}, Total companies with officers: {current_total}"
+                )
                 logger.info("Officer import complete. Ready to enable streaming API.")
                 save_progress(
                     last_processed_index + processed_count, total_companies, company_number

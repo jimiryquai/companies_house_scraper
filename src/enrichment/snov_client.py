@@ -90,7 +90,6 @@ class SnovioClient:
     - OAuth token acquisition and automatic refresh
     - Rate limiting compliance with exponential backoff
     - Request/response logging
-    - Circuit breaker pattern
     - Integration with queue system
     - Async/await support
     - Webhook processing and validation
@@ -108,6 +107,14 @@ class SnovioClient:
     MAX_RETRIES = 3
     INITIAL_BACKOFF = 1.0
     MAX_BACKOFF = 60.0
+
+    # Operation credit costs (for operation-based tracking)
+    OPERATION_CREDITS = {
+        "domain_search": 1,
+        "email_finder": 1,
+        "email_verifier": 1,
+        "find_emails_by_domain": 1,
+    }
     BACKOFF_MULTIPLIER = 2.0
 
     def __init__(
@@ -156,14 +163,6 @@ class SnovioClient:
         # Rate limiting
         self._request_history: list[float] = []
         self._rate_limit_lock = asyncio.Lock()
-
-        # Circuit breaker
-        self._circuit_breaker_state = "closed"  # closed, open, half_open
-        self._failure_count = 0
-        self._success_count = 0
-        self._last_failure_time: Optional[datetime] = None
-        self._circuit_breaker_threshold = 5
-        self._circuit_breaker_timeout = 300  # 5 minutes
 
         # Request tracking
         self._total_requests = 0
@@ -321,35 +320,13 @@ class SnovioClient:
             # Record this request
             self._request_history.append(now)
 
-    def _check_circuit_breaker(self) -> None:
-        """Check circuit breaker state."""
-        if self._circuit_breaker_state == "open" and self._last_failure_time:
-            time_since_failure = datetime.now() - self._last_failure_time
-            if time_since_failure.total_seconds() > self._circuit_breaker_timeout:
-                self._circuit_breaker_state = "half_open"
-                logger.info("Circuit breaker moved to half-open state")
-            else:
-                raise SnovioError("Circuit breaker is open - rejecting requests")
-
     def _record_success(self) -> None:
         """Record successful request."""
-        self._success_count += 1
         self._successful_requests += 1
-
-        if self._circuit_breaker_state == "half_open":
-            self._circuit_breaker_state = "closed"
-            self._failure_count = 0
-            logger.info("Circuit breaker closed after successful request")
 
     def _record_failure(self, _: Exception) -> None:
         """Record failed request."""
-        self._failure_count += 1
         self._failed_requests += 1
-        self._last_failure_time = datetime.now()
-
-        if self._failure_count >= self._circuit_breaker_threshold:
-            self._circuit_breaker_state = "open"
-            logger.warning(f"Circuit breaker opened after {self._failure_count} failures")
 
     async def _check_credits(self) -> bool:
         """Check if we have sufficient credits.
@@ -417,7 +394,6 @@ class SnovioClient:
         if not await self._check_credits():
             raise SnovioCreditsExhaustedError("Insufficient credits for API request")
 
-        self._check_circuit_breaker()
         await self._ensure_session()
         await self._ensure_authenticated()
         await self._wait_for_rate_limit()
@@ -738,7 +714,22 @@ class SnovioClient:
 
     async def get_account_info(self) -> dict[str, Any]:
         """Get account information including credits and limits."""
-        return await self._make_request("GET", "account-info")
+        return await self._make_request("GET", "get-balance")
+
+    def get_operation_credit_cost(self, operation_type: str) -> int:
+        """Get the credit cost for a specific operation type.
+
+        Args:
+            operation_type: The type of operation (domain_search, email_finder, etc.)
+
+        Returns:
+            Number of credits consumed by the operation
+
+        Note:
+            Returns 1 credit as default for unknown operations.
+            These costs are estimates based on Snov.io documentation.
+        """
+        return self.OPERATION_CREDITS.get(operation_type, 1)
 
     async def find_emails_by_domain(
         self,
@@ -1023,7 +1014,6 @@ class SnovioClient:
             if self.token_expires_at
             else None,
             "needs_refresh": self._needs_token_refresh(),
-            "circuit_breaker_state": self._circuit_breaker_state,
             "total_requests": self._total_requests,
             "successful_requests": self._successful_requests,
             "failed_requests": self._failed_requests,
@@ -1088,12 +1078,6 @@ class SnovioClient:
                 "last_request_time": last_request,
             },
             "rate_limiting": self.get_rate_limit_status(),
-            "circuit_breaker": {
-                "state": self._circuit_breaker_state,
-                "failure_count": self._failure_count,
-                "success_count": self._success_count,
-                "last_failure_time": last_failure,
-            },
             "credits": {
                 "balance": self._credit_balance,
                 "last_check": last_credit_check,
@@ -1108,21 +1092,21 @@ class SnovioClient:
         delay_seconds: int = 10,
     ) -> dict[str, Any]:
         """Search for company domains using polling instead of webhook.
-        
+
         This method works around the Snov.io API limitation where webhook URLs
         cannot be included in POST requests by using a two-step process:
         1. POST request without webhook to get task_hash
         2. Poll GET endpoint to retrieve results
-        
+
         Args:
             company_name: Name of the company to search domains for
             limit: Maximum number of results to return
             max_attempts: Maximum polling attempts (default: 30)
             delay_seconds: Delay between polling attempts (default: 10)
-            
+
         Returns:
             Domain search results
-            
+
         Raises:
             SnovioError: If the request fails or times out
         """
@@ -1157,15 +1141,15 @@ class SnovioClient:
         delay_seconds: int = 10,
     ) -> dict[str, Any]:
         """Poll for task results using task_hash.
-        
+
         Args:
             task_hash: Task hash from initial API request
             max_attempts: Maximum polling attempts
             delay_seconds: Delay between attempts
-            
+
         Returns:
             Task results when completed
-            
+
         Raises:
             SnovioError: If polling times out or fails
         """
@@ -1200,7 +1184,9 @@ class SnovioClient:
                     raise SnovioError(f"Polling failed after {max_attempts} attempts: {e}")
                 await asyncio.sleep(delay_seconds)
 
-        raise SnovioError(f"Task {task_hash} did not complete within {max_attempts * delay_seconds} seconds")
+        raise SnovioError(
+            f"Task {task_hash} did not complete within {max_attempts * delay_seconds} seconds"
+        )
 
 
 # Factory function for easy instantiation

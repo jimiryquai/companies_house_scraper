@@ -18,12 +18,13 @@ logger = logging.getLogger(__name__)
 
 class QueueProcessorError(Exception):
     """Raised when queue processing operations fail."""
+
     pass
 
 
 class SnovQueueProcessor:
     """Processes queued Snov.io API requests from the priority queue system.
-    
+
     This processor bridges the gap between the queue system and Snov.io API,
     handling domain search and email finder requests with proper error handling
     and workflow coordination.
@@ -119,7 +120,9 @@ class SnovQueueProcessor:
             elif request.endpoint == "/snov/email-finder":
                 await self._handle_email_finder_request(request)
             else:
-                logger.warning(f"Unknown endpoint in request {request.request_id}: {request.endpoint}")
+                logger.warning(
+                    f"Unknown endpoint in request {request.request_id}: {request.endpoint}"
+                )
                 self.queue_manager.mark_failed(request)
                 self.requests_failed += 1
                 return
@@ -149,36 +152,34 @@ class SnovQueueProcessor:
         company_name = request.params.get("company_name")
 
         if not company_number or not company_name:
-            raise QueueProcessorError("Missing company_number or company_name in domain search request")
+            raise QueueProcessorError(
+                "Missing company_number or company_name in domain search request"
+            )
 
         logger.info(f"Processing domain search for company {company_number}: {company_name}")
 
         # Call Snov.io domain search with polling
         try:
             result = await self.snov_client.domain_search(
-                company_name=company_name,
-                limit=10,
-                use_polling=True
+                company_name=company_name, limit=10, use_polling=True
             )
 
             domains = result.get("domains", [])
             success = len(domains) > 0
 
-            logger.info(f"Domain search completed for {company_number}: {len(domains)} domains found")
+            logger.info(
+                f"Domain search completed for {company_number}: {len(domains)} domains found"
+            )
 
             # Save results to database via dependency manager
             if success:
                 await self.dependency_manager.handle_domain_completion(
-                    company_number=company_number,
-                    domains=domains,
-                    success=True
+                    company_number=company_number, domains=domains, success=True
                 )
                 self.domain_searches_completed += 1
             else:
                 await self.dependency_manager.handle_domain_completion(
-                    company_number=company_number,
-                    domains=[],
-                    success=False
+                    company_number=company_number, domains=[], success=False
                 )
                 logger.warning(f"No domains found for company {company_number}")
 
@@ -186,9 +187,7 @@ class SnovQueueProcessor:
             logger.error(f"Domain search failed for company {company_number}: {e}")
             # Handle failure through dependency manager
             await self.dependency_manager.handle_domain_completion(
-                company_number=company_number,
-                domains=[],
-                success=False
+                company_number=company_number, domains=[], success=False
             )
             raise
 
@@ -214,25 +213,24 @@ class SnovQueueProcessor:
             name_parts = officer_name.split() if officer_name else []
             first_name = name_parts[0] if name_parts else ""
             last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else officer_name
-            
+
             result = await self.snov_client.email_finder_by_name(
-                domain=domain,
-                first_name=first_name,
-                last_name=last_name,
-                use_polling=True
+                domain=domain, first_name=first_name, last_name=last_name, use_polling=True
             )
 
             emails = result.get("emails", [])
             success = len(emails) > 0
 
-            logger.info(f"Email search completed for officer {officer_name}: {len(emails)} emails found")
+            logger.info(
+                f"Email search completed for officer {officer_name}: {len(emails)} emails found"
+            )
 
             # Handle results through dependency manager
             await self.dependency_manager.handle_officer_email_completion(
                 company_number=str(company_number),
                 officer_id=str(officer_id),
                 emails=emails,
-                success=success
+                success=success,
             )
 
             if success:
@@ -245,7 +243,7 @@ class SnovQueueProcessor:
                 company_number=str(company_number),
                 officer_id=str(officer_id),
                 emails=[],
-                success=False
+                success=False,
             )
             raise
 

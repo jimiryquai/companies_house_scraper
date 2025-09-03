@@ -21,12 +21,13 @@ logger = logging.getLogger(__name__)
 
 class EnrichmentCoordinatorError(Exception):
     """Raised when coordinator operations fail."""
+
     pass
 
 
 class EnrichmentCoordinator:
     """Coordinates the complete enrichment workflow.
-    
+
     This coordinator brings together all the components needed for the
     streaming API → Snov.io enrichment workflow to function end-to-end.
     """
@@ -62,14 +63,10 @@ class EnrichmentCoordinator:
 
         try:
             # Initialize core components in dependency order
-            self.queue_manager = PriorityQueueManager(
-                max_queue_size=10000,
-                enable_monitoring=True
-            )
+            self.queue_manager = PriorityQueueManager(max_queue_size=10000, enable_monitoring=True)
 
             self.company_state_manager = CompanyStateManager(
-                database_path=self.database_path,
-                queue_manager=self.queue_manager
+                database_path=self.database_path, queue_manager=self.queue_manager
             )
             await self.company_state_manager.initialize()
 
@@ -80,7 +77,7 @@ class EnrichmentCoordinator:
             self.dependency_manager = DependencyManager(
                 company_state_manager=self.company_state_manager,
                 queue_manager=self.queue_manager,
-                database_path=self.database_path
+                database_path=self.database_path,
             )
 
             # Initialize credit manager (optional)
@@ -95,7 +92,7 @@ class EnrichmentCoordinator:
             try:
                 self.webhook_handler = WebhookHandler(
                     database_path=self.database_path,
-                    webhook_secret="default_secret"  # TODO: Get from config
+                    webhook_secret="default_secret",  # TODO: Get from config
                 )
                 # Webhook handler doesn't have initialize method
             except Exception as e:
@@ -108,7 +105,7 @@ class EnrichmentCoordinator:
                 queue_manager=self.queue_manager,
                 credit_manager=self.credit_manager,
                 webhook_handler=self.webhook_handler,
-                database_path=self.database_path
+                database_path=self.database_path,
             )
             await self.streaming_integration.initialize()
 
@@ -117,7 +114,7 @@ class EnrichmentCoordinator:
                 queue_manager=self.queue_manager,
                 snov_client=self.snov_client,
                 dependency_manager=self.dependency_manager,
-                streaming_integration=self.streaming_integration
+                streaming_integration=self.streaming_integration,
             )
 
             self._initialized = True
@@ -182,8 +179,7 @@ class EnrichmentCoordinator:
             raise EnrichmentCoordinatorError("Streaming integration not initialized")
 
         return await self.streaming_integration.handle_strike_off_company_enrichment(
-            company_number=company_number,
-            company_name=company_name
+            company_number=company_number, company_name=company_name
         )
 
     def get_status(self) -> dict[str, Any]:
@@ -204,7 +200,7 @@ class EnrichmentCoordinator:
                 "queue_processor": self.queue_processor is not None,
                 "credit_manager": self.credit_manager is not None,
                 "webhook_handler": self.webhook_handler is not None,
-            }
+            },
         }
 
         # Add component-specific metrics

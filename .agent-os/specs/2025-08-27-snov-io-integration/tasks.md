@@ -88,6 +88,31 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 - [ ] **CRITICAL FIX**: Add missing bulk API methods (emails-by-domain-by-name, bulk-task-result)
 - [ ] **CRITICAL FIX**: Fix OAuth token handling for v2 endpoints
 
+**Task 1.2.1: Fix Credit Balance API Integration**
+- [x] **CRITICAL**: Update balance check from `account-info` to `get-balance` endpoint (current returns 404)
+- [x] **CRITICAL**: Remove incorrect `credits_consumed` tracking from API responses (field doesn't exist)
+- [x] **CRITICAL**: Implement operation-based credit tracking (count operations × known costs)
+- [ ] **CRITICAL**: Test `GET https://api.snov.io/v1/get-balance` endpoint with real credentials
+- [x] **CRITICAL**: Update `_check_credits()` method to use correct endpoint
+- [x] **CRITICAL**: Fix credit consumption recording to use operation counting instead of response parsing
+
+**Task 1.2.2: Implement Credit-Aware Workflow Orchestra**
+- [ ] **CRITICAL**: Create credit-aware workflow coordinator that checks balance before each Snov.io operation
+- [ ] **CRITICAL**: Implement pre-operation credit checking (before domain search, before email search)
+- [ ] **CRITICAL**: Implement post-operation credit tracking (after domain search, after email search)
+- [ ] **CRITICAL**: Add credit exhaustion handling that stops Snov.io operations but continues CH API
+- [ ] **CRITICAL**: Update workflow to use v2 endpoints for domain/email operations
+- [ ] **CRITICAL**: Ensure CH REST API continues regardless of credit status (non-blocking)
+- [ ] **CRITICAL**: Add actual credit consumption recording (may be 0 if no results found)
+
+**Task 1.2.3: Fix Snov.io API v2 Integration**
+- [ ] **CRITICAL**: Update domain search to use v2 endpoints (`POST /v2/company-domain-by-name/start`)
+- [ ] **CRITICAL**: Update email search to use v2 endpoints (`POST /v2/emails-by-domain-by-name/start`)
+- [ ] **CRITICAL**: Implement v2 result polling (`GET /v2/company-domain-by-name/result?task_hash=`)
+- [ ] **CRITICAL**: Fix OAuth token handling for v2 endpoints (may require different authentication)
+- [ ] **CRITICAL**: Update polling methods to handle v2 response formats
+- [ ] **CRITICAL**: Test v2 endpoints with real credentials to verify they work
+
 **Task 1.3: Essential Integration Components**
 
 - [x] Create webhook endpoint for receiving Snov.io results *(Infrastructure only - not used due to polling workaround)*
@@ -157,6 +182,25 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 - [ ] Implement credit consumption tracking for actual usage
 - [ ] Add comprehensive logging at each workflow step
 - [ ] Create simple test script to validate entire workflow
+
+**Task 2.3.1: Credit Tracking Validation**
+- [ ] **VALIDATION**: Test real-time balance checking with corrected `get-balance` endpoint
+- [ ] **VALIDATION**: Verify operation-based credit tracking accuracy vs actual Snov.io consumption
+- [ ] **VALIDATION**: Test credit exhaustion handling (when balance reaches 0)
+- [ ] **VALIDATION**: Ensure CH REST API continues regardless of Snov.io credit status
+- [ ] **VALIDATION**: Test credit allocation scaling (5k → 20k → 50k → 100k)
+- [ ] **VALIDATION**: Document actual credit costs per operation type (domain search, email finder)
+
+**Task 2.3.2: 10-Step Credit-Aware Workflow E2E Validation**
+- [ ] **E2E TEST**: Validate Step 1-3: CH Streaming → CH REST API → strike-off filter
+- [ ] **E2E TEST**: Validate Step 4: Credit check before domain search (`GET /v1/get-balance`)
+- [ ] **E2E TEST**: Validate Step 5-6: Domain search (v2 API) + post-operation credit tracking
+- [ ] **E2E TEST**: Validate Step 7: Officer fetch from CH REST API (if domain found)
+- [ ] **E2E TEST**: Validate Step 8: Credit check before email search (`GET /v1/get-balance`)
+- [ ] **E2E TEST**: Validate Step 9-10: Email search (v2 API) + final credit tracking
+- [ ] **E2E TEST**: Test workflow with credits = 0 (should stop Snov.io, continue CH API)
+- [ ] **E2E TEST**: Test workflow with operations that find no results (may consume 0 credits)
+- [ ] **E2E TEST**: Verify complete workflow saves data to all tables (companies, domains, officers, emails, credit_usage)
 
 ### Phase 3: Optimization and Enhancement (Week 3)
 

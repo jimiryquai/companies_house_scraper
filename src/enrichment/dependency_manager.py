@@ -236,10 +236,10 @@ class DependencyManager:
             if success and domains:
                 # Domain discovery successful - save domains then queue officers fetch from CH API
                 await self._save_company_domains(company_number, domains)
-                
+
                 # Now queue officers fetch from Companies House REST API
                 await self._queue_officers_fetch_after_domain_success(company_number, domains)
-                
+
                 logger.info(
                     f"Domain discovery completed for {company_number}: {len(domains)} domains found, officers fetch queued"
                 )
@@ -261,7 +261,7 @@ class DependencyManager:
             domains: List of discovered domains
         """
         import sqlite3
-        
+
         conn = sqlite3.connect(self.database_path)
         try:
             cursor = conn.cursor()
@@ -272,7 +272,7 @@ class DependencyManager:
                     (company_number, domain, discovery_method, confidence_score, created_at)
                     VALUES (?, ?, ?, ?, datetime('now'))
                     """,
-                    (company_number, domain, "snov_domain_search", 0.8)
+                    (company_number, domain, "snov_domain_search", 0.8),
                 )
             conn.commit()
             logger.debug(f"Saved {len(domains)} domains for company {company_number}")
@@ -297,10 +297,10 @@ class DependencyManager:
             logger.info(
                 f"Queued officers fetch for company {company_number} after domain success, request_id: {request_id}"
             )
-            
+
             # Store the domains for use when officers fetch completes
             # This ensures email search happens with both officers and domains
-            
+
         except Exception as e:
             logger.error(f"Failed to queue officers fetch for company {company_number}: {e}")
             raise
@@ -420,8 +420,12 @@ class DependencyManager:
                         f"email discovery queued for {len(domains)} domains"
                     )
                 else:
-                    logger.warning(f"No stored domains found for company {company_number}, cannot proceed to email discovery")
-                    await self._mark_enrichment_failed(company_number, "no_domains_for_email_search")
+                    logger.warning(
+                        f"No stored domains found for company {company_number}, cannot proceed to email discovery"
+                    )
+                    await self._mark_enrichment_failed(
+                        company_number, "no_domains_for_email_search"
+                    )
             else:
                 # Officers fetch failed - mark enrichment as failed
                 logger.warning(f"Officers fetch failed for company {company_number}")
@@ -441,13 +445,12 @@ class DependencyManager:
             List of domain strings
         """
         import sqlite3
-        
+
         conn = sqlite3.connect(self.database_path)
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT domain FROM company_domains WHERE company_number = ?",
-                (company_number,)
+                "SELECT domain FROM company_domains WHERE company_number = ?", (company_number,)
             )
             domains = [row[0] for row in cursor.fetchall()]
             return domains

@@ -5,7 +5,9 @@ to detect companies entering/exiting strike-off status and ensure zero
 data gaps between bulk processing cycles.
 """
 
+from .ch_api_processor import CompaniesHouseAPIError, CompaniesHouseAPIProcessor
 from .client import StreamingClient
+from .company_state_manager import CompanyStateManager, ProcessingState
 from .config import StreamingConfig
 from .database import (
     CompanyRecord,
@@ -52,8 +54,6 @@ from .log_filtering import (
 )
 from .queue_manager import PriorityQueueManager, QueuedRequest, RequestPriority
 from .status_reporter import ConnectionEvent, ConnectionReport, ConnectionStatusReporter
-from .ch_api_processor import CompaniesHouseAPIProcessor, CompaniesHouseAPIError
-from .company_state_manager import CompanyStateManager, ProcessingState
 from .structured_logger import (
     ContextualLogger,
     LogContext,
@@ -123,7 +123,7 @@ __all__ = [
     "QueuedRequest",
     "RequestPriority",
     "CompaniesHouseAPIProcessor",
-    "CompaniesHouseAPIError", 
+    "CompaniesHouseAPIError",
     "CompanyStateManager",
     "ProcessingState",
 ]
