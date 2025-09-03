@@ -1,0 +1,482 @@
+# Companies House + Snov.io Queue Decision Flow
+# Multi-API priority queuing with credit management
+
+start: "New API Request" {
+  shape: oval
+  style.fill: "#e1f5fe"
+  style.stroke: "#0288d1"
+  style.stroke-width: 2
+}
+
+# Request Classification
+classify: "Classify Request API & Type" {
+  shape: diamond
+  style.fill: "#fff3e0"
+  style.stroke: "#f57c00"
+}
+
+start -> classify
+
+# Companies House API Request Types (Primary Bottleneck)
+ch_status_check: "CH Company Status\n[EVERY STREAMING EVENT]\n~600+ req/5min potential" {
+  style.fill: "#fce4ec"
+  style.stroke: "#c2185b"
+  style.stroke-width: 2
+  style.font-size: 12
+}
+
+ch_officer_fetch: "CH Officer Fetch\n[ONLY if domain found]\n~40% of strike-offs" {
+  style.fill: "#f3e5f5"
+  style.stroke: "#7b1fa2"
+  style.font-size: 12
+}
+
+# Snov.io API Request Types (Credit-Constrained)
+snov_domain: "Snov.io Domain Search\n[Strike-offs only]\nWebhook-based" {
+  style.fill: "#dcedc8"
+  style.stroke: "#558b2f"
+  style.font-size: 12
+}
+
+snov_email: "Snov.io Email Finder\n[Per officer with domain]\nWebhook-based" {
+  style.fill: "#c8e6c9"
+  style.stroke: "#2e7d32"
+  style.font-size: 12
+}
+
+classify -> ch_status_check: "CH Status Check"
+classify -> ch_officer_fetch: "CH Officers"
+classify -> snov_domain: "Snov Domain"
+classify -> snov_email: "Snov Email"
+
+# Priority Assignment
+assign_priority: "Assign Priority Level" {
+  shape: hexagon
+  style.fill: "#e8f5e9"
+  style.stroke: "#2e7d32"
+}
+
+ch_status_check -> assign_priority: "HIGH (1)"
+ch_officer_fetch -> assign_priority: "MEDIUM (2)"
+snov_domain -> assign_priority: "LOW (3)"
+snov_email -> assign_priority: "LOW (3)"
+
+# Capacity Check
+check_capacity: "Check Queue Capacity" {
+  shape: diamond
+  style.fill: "#fff8e1"
+  style.stroke: "#f9a825"
+}
+
+assign_priority -> check_capacity
+
+# Capacity Decision Branches
+at_capacity: "Queue at Max Capacity\n(10,000 requests)" {
+  shape: rectangle
+  style.fill: "#ffccbc"
+  style.stroke: "#d84315"
+}
+
+has_capacity: "Queue Has Space" {
+  shape: rectangle
+  style.fill: "#c8e6c9"
+  style.stroke: "#388e3c"
+}
+
+check_capacity -> at_capacity: ">=10,000 queued"
+check_capacity -> has_capacity: "<10,000 queued"
+
+# At Capacity Decision
+force_check: "Is Request HIGH Priority?" {
+  shape: diamond
+  style.fill: "#ffecb3"
+  style.stroke: "#ffa000"
+}
+
+at_capacity -> force_check
+
+drop_request: "Drop Request\n(Log & Metric)" {
+  shape: rectangle
+  style.fill: "#ef9a9a"
+  style.stroke: "#c62828"
+}
+
+force_enqueue: "Force Enqueue\n(Strike-off Detection)" {
+  shape: rectangle
+  style.fill: "#fff59d"
+  style.stroke: "#f9a825"
+}
+
+force_check -> drop_request: "No (Lower Priority)"
+force_check -> force_enqueue: "Yes (HIGH Priority)"
+
+# API-Specific Checks
+api_check: "Is Snov.io Request?" {
+  shape: diamond
+  style.fill: "#c5e1a5"
+  style.stroke: "#558b2f"
+}
+
+has_capacity -> api_check
+force_enqueue -> api_check
+
+# Credit Check for Snov.io
+credit_check: "Check Credits\n(5000/month limit)" {
+  shape: diamond
+  style.fill: "#fff59d"
+  style.stroke: "#f9a825"
+}
+
+api_check -> credit_check: "Yes (Snov.io)"
+
+credits_exhausted: "Credits Exhausted\nDrop Request\n(Resume next month)" {
+  shape: rectangle
+  style.fill: "#ffcdd2"
+  style.stroke: "#d32f2f"
+  style.stroke-width: 2
+}
+
+credit_check -> credits_exhausted: "No credits"
+
+# Duplicate Check
+check_duplicate: "Check for Duplicates" {
+  shape: diamond
+  style.fill: "#e1bee7"
+  style.stroke: "#8e24aa"
+}
+
+api_check -> check_duplicate: "No (CH API)"
+credit_check -> check_duplicate: "Credits OK"
+
+reject_duplicate: "Reject Duplicate\n(Already Queued)" {
+  shape: rectangle
+  style.fill: "#ffab91"
+  style.stroke: "#ff6f00"
+}
+
+check_duplicate -> reject_duplicate: "Duplicate Found"
+
+# Enqueue Process
+enqueue: "Add to Priority Queue" {
+  shape: rectangle
+  style.fill: "#b2dfdb"
+  style.stroke: "#00695c"
+  style.stroke-width: 2
+}
+
+check_duplicate -> enqueue: "No Duplicate"
+
+update_metrics: "Update Metrics\n- Total Enqueued\n- Queue Depths\n- Wait Times" {
+  shape: rectangle
+  style.fill: "#d7ccc8"
+  style.stroke: "#5d4037"
+  style.font-size: 11
+}
+
+enqueue -> update_metrics
+
+# Persistence
+persist_check: "Persistence Enabled?" {
+  shape: diamond
+  style.fill: "#f0f4c3"
+  style.stroke: "#827717"
+}
+
+update_metrics -> persist_check
+
+save_to_disk: "Save Queue State\n(JSON to Disk)" {
+  shape: cylinder
+  style.fill: "#dce775"
+  style.stroke: "#689f38"
+}
+
+persist_check -> save_to_disk: "Yes"
+
+# Dequeue Process (Worker Side)
+dequeue_trigger: "Worker Ready to\nProcess Request" {
+  shape: oval
+  style.fill: "#e0f2f1"
+  style.stroke: "#00796b"
+  style.stroke-width: 2
+}
+
+persist_check -> dequeue_trigger: "No"
+save_to_disk -> dequeue_trigger
+
+check_queues: "Check Queues by Priority\n1. HIGH (Status Checks)\n2. MEDIUM (Officers)\n3. LOW (Bulk)\n4. BACKGROUND" {
+  shape: rectangle
+  style.fill: "#e3f2fd"
+  style.stroke: "#1565c0"
+  style.font-size: 11
+}
+
+dequeue_trigger -> check_queues
+
+# Expiration Check
+check_expired: "Check Request Age" {
+  shape: diamond
+  style.fill: "#fce4ec"
+  style.stroke: "#ad1457"
+}
+
+check_queues -> check_expired
+
+remove_expired: "Remove Expired\n(>5 min old)" {
+  shape: rectangle
+  style.fill: "#ffcdd2"
+  style.stroke: "#b71c1c"
+}
+
+check_expired -> remove_expired: "Expired"
+
+# API Route Decision
+api_type: "API Type?" {
+  shape: diamond
+  style.fill: "#e1bee7"
+  style.stroke: "#7b1fa2"
+}
+
+check_expired -> api_type: "Valid"
+
+# Direct API Call (CH)
+ch_api_call: "Execute CH API\n(Direct HTTP)" {
+  shape: rectangle
+  style.fill: "#c5e1a5"
+  style.stroke: "#33691e"
+  style.stroke-width: 2
+}
+
+# Webhook Trigger (Snov.io)
+snov_webhook: "Trigger Snov.io\nWebhook Request\n(Async)" {
+  shape: rectangle
+  style.fill: "#dcedc8"
+  style.stroke: "#558b2f"
+  style.stroke-width: 2
+}
+
+api_type -> ch_api_call: "Companies House"
+api_type -> snov_webhook: "Snov.io"
+
+# API Response
+check_response: "Response Status?" {
+  shape: diamond
+  style.fill: "#e0f7fa"
+  style.stroke: "#006064"
+}
+
+ch_api_call -> check_response
+snov_webhook -> check_response: "Webhook accepted"
+
+# Success Path
+mark_success: "Mark Processed\n- Update Database\n- Record Metrics" {
+  shape: rectangle
+  style.fill: "#a5d6a7"
+  style.stroke: "#1b5e20"
+}
+
+check_response -> mark_success: "200 OK"
+
+# Rate Limit Path
+rate_limited: "Rate Limited\n(429 Response)" {
+  shape: rectangle
+  style.fill: "#ffcc80"
+  style.stroke: "#ef6c00"
+}
+
+check_response -> rate_limited: "429 Too Many"
+
+# Error Path
+api_error: "API Error\n(4xx/5xx)" {
+  shape: rectangle
+  style.fill: "#ffab91"
+  style.stroke: "#d84315"
+}
+
+check_response -> api_error: "Error"
+
+# Retry Logic for Rate Limiting
+apply_backoff: "Apply Exponential\nBackoff" {
+  shape: rectangle
+  style.fill: "#ffe082"
+  style.stroke: "#f9a825"
+  style.font-size: 11
+}
+
+rate_limited -> apply_backoff
+
+lower_priority: "Lower Priority\n(if not already LOW)" {
+  shape: rectangle
+  style.fill: "#fff176"
+  style.stroke: "#f57f17"
+  style.font-size: 11
+}
+
+apply_backoff -> lower_priority
+
+# Retry Decision
+check_retry: "Retry Count < Max?" {
+  shape: diamond
+  style.fill: "#fff3e0"
+  style.stroke: "#e65100"
+}
+
+api_error -> check_retry: "Check Retries"
+lower_priority -> check_retry
+
+# Retry Actions
+increment_retry: "Increment Retry Count" {
+  shape: rectangle
+  style.fill: "#ffcc80"
+  style.stroke: "#e65100"
+  style.font-size: 11
+}
+
+check_retry -> increment_retry: "Yes (<3)"
+
+requeue_request: "Requeue Request" {
+  shape: rectangle
+  style.fill: "#ffe082"
+  style.stroke: "#f57f17"
+}
+
+increment_retry -> requeue_request
+requeue_request -> enqueue: "Retry"
+
+# Final Failure
+mark_failed: "Mark Failed\n- Log Error\n- Alert if HIGH Priority" {
+  shape: rectangle
+  style.fill: "#ef9a9a"
+  style.stroke: "#b71c1c"
+}
+
+check_retry -> mark_failed: "No (Max Retries)"
+
+# End States
+end_success: "Request Complete\nData Saved" {
+  shape: oval
+  style.fill: "#c8e6c9"
+  style.stroke: "#2e7d32"
+  style.stroke-width: 2
+}
+
+end_dropped: "Request Dropped" {
+  shape: oval
+  style.fill: "#ffcdd2"
+  style.stroke: "#c62828"
+  style.stroke-width: 2
+}
+
+end_failed: "Request Failed\nManual Review" {
+  shape: oval
+  style.fill: "#ffccbc"
+  style.stroke: "#d84315"
+  style.stroke-width: 2
+}
+
+mark_success -> end_success
+drop_request -> end_dropped
+reject_duplicate -> end_dropped
+remove_expired -> end_dropped
+credits_exhausted -> end_dropped
+mark_failed -> end_failed
+
+# Queue Status Monitor
+monitoring: "Queue Monitoring" {
+  shape: rectangle
+  style.fill: "#f5f5f5"
+  style.stroke: "#424242"
+  style.stroke-dash: 3
+  style.font-size: 11
+  near: center-right
+}
+
+monitoring_details: |md
+  **Real-time Metrics:**
+  - Queue depth per priority
+  - CH API rate limit usage
+  - Snov.io credits remaining
+  - Domain discovery rate
+  - Email discovery success
+
+  **Alerts Triggered:**
+  - Queue >80% capacity
+  - CH 429 responses
+  - Snov.io credits <10%
+  - Credits exhausted
+|
+
+# System Constraints
+constraints_box: "System Constraints" {
+  shape: rectangle
+  style.fill: "#fff9c4"
+  style.stroke: "#f57f17"
+  style.stroke-dash: 3
+  near: top-right
+}
+
+constraints_details: |md
+  **PRIMARY: CH API**
+  - 600 req/5min hard limit
+  - EVERY event needs status check
+  - Officers only if domain found
+
+  **SECONDARY: Snov.io Credits**
+  - 5000 credits/month
+  - Exhaust, don't ration
+  - Scalable to 100k
+
+  **Natural Filtering:**
+  - ~40-60% no domain found
+  - Reduces officer fetches
+  - Reduces email searches
+|
+
+# Priority Examples
+priority_box: "Priority Examples" {
+  shape: rectangle
+  style.fill: "#f3e5f5"
+  style.stroke: "#4a148c"
+  style.stroke-dash: 3
+  near: bottom-right
+}
+
+priority_examples: |md
+  **HIGH:** CH Status Check (EVERY event)
+  GET /company/12345678
+
+  **MEDIUM:** CH Officers (domain found)
+  GET /company/12345678/officers
+
+  **LOW:** Snov.io Domain Search
+  POST webhook.snov.io/domain
+
+  **LOW:** Snov.io Email Finder
+  POST webhook.snov.io/email
+|
+
+# Decision Logic Explanation
+decision_note: "Key Decision Points" {
+  shape: rectangle
+  style.fill: "#e3f2fd"
+  style.stroke: "#1565c0"
+  style.stroke-dash: 3
+  near: bottom-left
+}
+
+decision_details: |md
+  **1. CH API Protection:**
+  HIGH priority for status checks
+  600 req/5min is primary constraint
+
+  **2. Credit Management:**
+  Snov.io stops when credits exhausted
+  Resume next month automatically
+
+  **3. Dependency Gating:**
+  No officers without domain
+  No emails without officers
+
+  **4. Natural Load Reduction:**
+  Each gate filters ~40-60%
+  Dramatically reduces downstream calls
+|

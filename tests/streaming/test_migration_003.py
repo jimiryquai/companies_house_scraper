@@ -140,9 +140,9 @@ class TestMigration003:
         # Run migrations
         migration.run_migrations()
 
-        # Check final version (includes migration 004 for company_status_detail)
+        # Check final version (includes all migrations through 006)
         final_version = migration.get_schema_version()
-        assert final_version == 4
+        assert final_version == 6
 
 
 @pytest.fixture

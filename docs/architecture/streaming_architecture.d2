@@ -1,0 +1,240 @@
+# Companies House + Snov.io Enrichment Architecture
+
+# External APIs
+streaming_api: "Companies House\nStreaming API" {
+  shape: cloud
+  style.fill: "#e1f5fe"
+}
+
+rest_api: "Companies House\nREST API" {
+  shape: cloud
+  style.fill: "#e1f5fe"
+}
+
+snov_domain_api: "Snov.io\nDomain Search API" {
+  shape: cloud
+  style.fill: "#c5e1a5"
+}
+
+snov_email_api: "Snov.io\nEmail Finder API" {
+  shape: cloud
+  style.fill: "#c5e1a5"
+}
+
+# Main Service & Queue
+streaming_service: "StreamingService\n(Main Controller)" {
+  shape: hexagon
+  style.fill: "#fff3e0"
+}
+
+queue_manager: "Priority Queue Manager\n600 req/5min CH limit" {
+  shape: rectangle
+  style.fill: "#ffecb3"
+  style.stroke: "#ff6f00"
+  style.stroke-width: 2
+}
+
+# Credit Management
+credit_manager: "Credit Manager\n5000 credits/month\n(scalable to 100k)" {
+  shape: rectangle
+  style.fill: "#fff9c4"
+  style.stroke: "#ffa000"
+  style.stroke-width: 2
+}
+
+# Processing Components
+rest_call: "CH Status Check\nGET /company/{number}\n[EVERY EVENT]" {
+  shape: rectangle
+  style.fill: "#fce4ec"
+  style.stroke: "#c2185b"
+  style.stroke-width: 2
+}
+
+status_check: "Check Detailed Status\ncompany_status_detail" {
+  shape: diamond
+  style.fill: "#e8f5e8"
+}
+
+# Strike-off Path
+strike_off_detected: "Strike-off Detected\n'Active - Proposal to Strike Off'" {
+  shape: rectangle
+  style.fill: "#c8e6c9"
+}
+
+# Enrichment Flow (Gated)
+domain_search: "Domain Search\n(Snov.io Webhook)" {
+  shape: rectangle
+  style.fill: "#dcedc8"
+}
+
+domain_check: "Domain Found?" {
+  shape: diamond
+  style.fill: "#c5e1a5"
+}
+
+no_domain: "No Domain\nSTOP ENRICHMENT\n(~40-60% filtered)" {
+  shape: rectangle
+  style.fill: "#ef9a9a"
+  style.stroke: "#c62828"
+  style.stroke-width: 2
+}
+
+officer_fetch: "Fetch Officers\nGET /officers\n(Only if domain)" {
+  shape: rectangle
+  style.fill: "#e1f5fe"
+}
+
+officer_check: "Officers Found?" {
+  shape: diamond
+  style.fill: "#bbdefb"
+}
+
+no_officers: "No Officers\nSTOP ENRICHMENT" {
+  shape: rectangle
+  style.fill: "#ffab91"
+}
+
+email_finder: "Email Finder\nDomain + Officer Name\n→ Snov.io" {
+  shape: rectangle
+  style.fill: "#c8e6c9"
+}
+
+# Credit Check
+credit_check: "Credits Available?" {
+  shape: diamond
+  style.fill: "#fff59d"
+}
+
+credits_exhausted: "Credits Exhausted\nPause Snov.io Ops" {
+  shape: rectangle
+  style.fill: "#ffcdd2"
+  style.stroke: "#d32f2f"
+  style.stroke-width: 2
+}
+
+# Webhook Handler
+webhook_handler: "Webhook Handler\n(Async Results)" {
+  shape: rectangle
+  style.fill: "#e1bee7"
+}
+
+# Database
+database: "SQLite Database" {
+  shape: cylinder
+  style.fill: "#f3e5f5"
+
+  companies: "companies\n- company_number\n- status_detail"
+  officers: "officers\n- company_number\n- name"
+  domains: "company_domains\n- company_number\n- domain"
+  emails: "officer_emails\n- officer_id\n- email"
+  credits: "snov_credit_usage\n- credits_consumed\n- remaining"
+  webhooks: "snov_webhooks\n- request_id\n- status"
+}
+
+# Main Flow
+streaming_api -> streaming_service: "Event stream"
+streaming_service -> queue_manager: "Queue request"
+queue_manager -> rest_call: "Process (HIGH priority)"
+rest_call -> rest_api: "MUST CHECK EVERY EVENT"
+rest_api -> status_check: "Returns status"
+
+# Strike-off Branch
+status_check -> strike_off_detected: "Strike-off detected"
+status_check -> ignore: "Not strike-off\n(STOP - no further calls)" {
+  style.fill: "#f5f5f5"
+}
+
+# Enrichment Chain (with gates)
+strike_off_detected -> credit_check: "Start enrichment"
+credit_check -> credits_exhausted: "No credits"
+credit_check -> domain_search: "Credits OK"
+
+domain_search -> snov_domain_api: "Webhook request"
+snov_domain_api -> webhook_handler: "Async response"
+webhook_handler -> domain_check: "Process result"
+
+domain_check -> no_domain: "No domain found"
+domain_check -> officer_fetch: "Domain found"
+
+officer_fetch -> rest_api: "GET officers"
+officer_fetch -> officer_check: "Check result"
+
+officer_check -> no_officers: "No officers"
+
+# Loop for each officer
+email_loop: "For Each Officer Loop" {
+  shape: rectangle
+  style.fill: "#e8f5e9"
+  style.stroke: "#2e7d32"
+  style.stroke-width: 2
+  style.stroke-dash: 3
+}
+
+officer_check -> email_loop: "Officers found"
+email_loop -> email_finder: "Process officer 1, 2, 3..."
+
+email_finder -> snov_email_api: "Webhook per officer\n(domain + name)"
+snov_email_api -> webhook_handler: "Async results"
+webhook_handler -> email_check: "Check result"
+
+# Email Found Decision
+email_check: "Email Found?" {
+  shape: diamond
+  style.fill: "#a5d6a7"
+  style.stroke: "#2e7d32"
+}
+
+email_check -> database.emails: "Yes - Save email"
+email_check -> no_email_skip: "No - Skip"
+
+no_email_skip: "Skip to next officer" {
+  shape: rectangle
+  style.fill: "#ffccbc"
+  style.stroke: "#d84315"
+}
+
+email_check -> email_loop: "Continue loop"
+no_email_skip -> email_loop: "Next officer"
+
+# Database saves (in order)
+strike_off_detected -> database.companies: "1. Save company"
+domain_check -> database.domains: "2. Save domain (if found)"
+officer_check -> database.officers: "3. Save ALL officers (if found)"
+email_check -> database.emails: "4. Save email (if found)"
+credit_manager -> database.credits: "Track usage"
+
+# Bottleneck Indicators
+bottleneck_box: "System Bottlenecks" {
+  shape: rectangle
+  style.fill: "#ffebee"
+  style.stroke: "#c62828"
+  style.stroke-dash: 3
+  near: top-right
+}
+
+bottleneck_details: |md
+  **Primary Bottleneck:**
+  CH API: 600 req/5min
+  EVERY event needs status check
+
+  **Secondary Bottleneck:**
+  Snov.io: 5000 credits/month
+  Exhaust, don't ration
+
+  **Natural Filtering:**
+  - 40-60% no domain found
+  - Some have no officers
+  - Reduces downstream load
+
+  **Email Search Flow:**
+  1 company → 1 domain search
+  If domain found → N officers
+  Each officer → 1 email search
+  Total: 1 + N Snov.io calls
+|
+
+# Stats
+streaming_service.stats: "Metrics\n- events_processed\n- strike_offs_found\n- domains_discovered\n- emails_found\n- credits_remaining" {
+  shape: oval
+  style.fill: "#f0f4ff"
+}

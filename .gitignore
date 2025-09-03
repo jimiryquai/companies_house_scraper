@@ -72,14 +72,17 @@ Thumbs.db
 # Data files
 *.csv
 *.db
-*.log
 progress.json
 import_output.txt
 archive/
 BasicCompanyDataAsOneFile-*.csv*
 
+# Log files
+logs/
+*.log
+
 # Zone Identifier files
 *.Zone.Identifier
 *.sec.endpointdlp
 officer_import_progress.log.backup
-queue_decision_flow.png
+*.png
