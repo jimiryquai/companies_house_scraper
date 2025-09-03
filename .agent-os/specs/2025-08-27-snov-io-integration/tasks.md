@@ -101,7 +101,7 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 - [x] **CRITICAL**: Implement pre-operation credit checking (before domain search, before email search)
 - [x] **CRITICAL**: Implement post-operation credit tracking (after domain search, after email search)
 - [x] **CRITICAL**: Add credit exhaustion handling that stops Snov.io operations but continues CH API
-- [ ] **CRITICAL**: Update workflow to use v2 endpoints for domain/email operations
+- [x] **CRITICAL**: Update workflow to use v2 endpoints for domain/email operations
 - [x] **CRITICAL**: Ensure CH REST API continues regardless of credit status (non-blocking)
 - [x] **CRITICAL**: Add actual credit consumption recording (may be 0 if no results found)
 

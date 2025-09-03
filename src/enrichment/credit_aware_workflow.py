@@ -9,7 +9,16 @@ import logging
 from datetime import datetime
 from typing import Any, Optional
 
-from ..streaming.queue_manager import PriorityQueueManager, QueuedRequest, RequestPriority
+try:
+    from streaming.queue_manager import PriorityQueueManager, QueuedRequest, RequestPriority
+except ImportError:
+    try:
+        from src.streaming.queue_manager import PriorityQueueManager, QueuedRequest, RequestPriority
+    except ImportError:
+        # For testing or when streaming is not available
+        PriorityQueueManager = None
+        QueuedRequest = None
+        RequestPriority = None
 from .credit_manager import CreditManager
 from .enrichment_state_manager import EnrichmentStateManager
 from .snov_client import SnovioClient
