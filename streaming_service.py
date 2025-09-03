@@ -8,14 +8,18 @@ Integrates with existing officer import workflow and database cleanup.
 
 import asyncio
 import logging
+import os
 import signal
 import sys
+import yaml
 from datetime import datetime
 from typing import Any, Optional
 
 # Import streaming components
 from src.streaming import (
+    CompaniesHouseAPIProcessor,
     CompanyEvent,
+    CompanyStateManager,
     ErrorAlertManager,
     EventProcessor,
     HealthMonitor,
@@ -25,6 +29,24 @@ from src.streaming import (
     StreamingConfig,
     StreamingDatabase,
 )
+
+
+def load_config() -> dict[str, Any]:
+    """Load configuration from config.yaml file."""
+    logger = logging.getLogger("streaming_service")
+    try:
+        with open("config.yaml") as file:
+            config = yaml.safe_load(file)
+            return config or {}
+    except Exception as e:
+        logger.error(f"Error loading config: {e}")
+        return {
+            "api": {"key": os.environ.get("COMPANIES_HOUSE_API_KEY", "")},
+            "rate_limit": {
+                "calls": 600,
+                "period": 300,  # 5 minutes
+            },
+        }
 
 
 class StreamingService:
@@ -43,6 +65,8 @@ class StreamingService:
         self.health_monitor: Optional[HealthMonitor] = None
         self.error_alerting: Optional[ErrorAlertManager] = None
         self.queue_manager: Optional[PriorityQueueManager] = None
+        self.ch_api_processor: Optional[CompaniesHouseAPIProcessor] = None
+        self.company_state_manager: Optional[CompanyStateManager] = None
 
         # API keys
         self.api_key = config.rest_api_key  # For REST API calls
@@ -100,6 +124,17 @@ class StreamingService:
 
             # Initialize queue manager for rate-limited API calls
             self.queue_manager = PriorityQueueManager()
+
+            # Initialize company state manager
+            self.company_state_manager = CompanyStateManager(self.database.manager)
+
+            # Initialize CH API processor
+            self.ch_api_processor = CompaniesHouseAPIProcessor(
+                config=self.config,
+                queue_manager=self.queue_manager,
+                company_state_manager=self.company_state_manager,
+                enrichment_callback=None  # Will be set up later if needed
+            )
 
             # Initialize health monitor (will be set up after client is ready)
             self.health_monitor = None
@@ -169,10 +204,7 @@ class StreamingService:
                 request_id=str(uuid.uuid4()),
                 priority=RequestPriority.HIGH,  # Status checks are high priority
                 endpoint=f"/company/{company_number}",
-                company_number=company_number,
-                request_type="company_status",
-                created_at=datetime.datetime.now(),
-                attempts=0,
+                params={"company_number": company_number},
                 callback=self._handle_company_status_response,  # Will be called with response
             )
 
@@ -495,6 +527,11 @@ class StreamingService:
             if self.health_monitor:
                 asyncio.create_task(self.health_monitor.start_monitoring())
 
+            # Start CH API processor
+            if self.ch_api_processor:
+                self.logger.info("🚀 Starting Companies House API processor...")
+                asyncio.create_task(self.ch_api_processor.start_processing())
+
             # Start processing events
             self.logger.info("🔄 Starting event processing loop...")
             async for event in self.client.stream_events():
@@ -540,6 +577,9 @@ class StreamingService:
         self.logger.info("Shutting down streaming service...")
         self.shutdown_event.set()
 
+        if self.ch_api_processor:
+            await self.ch_api_processor.stop_processing()
+
         if self.client:
             await self.client.disconnect()
 
@@ -566,13 +606,18 @@ async def main() -> None:
         # Load configuration from config.yaml (same as officer import)
         yaml_config = load_config()
         streaming_api_key = yaml_config.get("api", {}).get("streaming_key", "")
+        rest_api_key = yaml_config.get("api", {}).get("key", "")
 
         if not streaming_api_key:
             raise ValueError("streaming_key not found in config.yaml")
+        
+        if not rest_api_key:
+            raise ValueError("REST API key not found in config.yaml")
 
-        # Create streaming config with key from yaml
+        # Create streaming config with keys from yaml
         config = StreamingConfig(
             streaming_api_key=streaming_api_key,
+            rest_api_key=rest_api_key,
             api_base_url=yaml_config.get("api_endpoints", {}).get(
                 "stream_base_url", "https://stream.companieshouse.gov.uk"
             ),

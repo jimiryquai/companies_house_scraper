@@ -52,6 +52,8 @@ from .log_filtering import (
 )
 from .queue_manager import PriorityQueueManager, QueuedRequest, RequestPriority
 from .status_reporter import ConnectionEvent, ConnectionReport, ConnectionStatusReporter
+from .ch_api_processor import CompaniesHouseAPIProcessor, CompaniesHouseAPIError
+from .company_state_manager import CompanyStateManager, ProcessingState
 from .structured_logger import (
     ContextualLogger,
     LogContext,
@@ -120,4 +122,8 @@ __all__ = [
     "PriorityQueueManager",
     "QueuedRequest",
     "RequestPriority",
+    "CompaniesHouseAPIProcessor",
+    "CompaniesHouseAPIError", 
+    "CompanyStateManager",
+    "ProcessingState",
 ]

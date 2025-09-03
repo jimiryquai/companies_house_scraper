@@ -177,8 +177,8 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 
 **Subtask 6.2.2: Company State Manager Core**
 - [ ] 6.2.2.1 Write tests for CompanyStateManager class interface and state transitions
-- [ ] 6.2.2.2 Implement ProcessingState enum with queue-aware states (detected, status_queued, officers_queued, etc.)
-- [ ] 6.2.2.3 Create CompanyStateManager class with async state management and queue integration
+- [x] 6.2.2.2 Implement ProcessingState enum with queue-aware states (detected, status_queued, officers_queued, etc.)
+- [x] 6.2.2.3 Create CompanyStateManager class with async state management and queue integration
 - [ ] 6.2.2.4 Implement thread-safe state transitions using asyncio locks
 - [ ] 6.2.2.5 Add database persistence layer for state tracking with queue request IDs
 - [ ] 6.2.2.6 Add rate limit monitoring and 429 response tracking
@@ -188,10 +188,10 @@ These are the tasks to be completed for the spec detailed in @.agent-os/specs/20
 - [ ] 6.2.3.1 Write tests for queue-only API architecture
 - [ ] 6.2.3.2 Fix _is_strike_off_status() method to use exact string match for "active-proposal-to-strike-off"
 - [ ] 6.2.3.3 REMOVE all direct API calls from streaming_service.py (make it queue-only)
-- [ ] 6.2.3.4 Integrate StateManager with PriorityQueueManager for ALL API requests
-- [ ] 6.2.3.5 Implement queue request creation for company status checks (HIGH priority)
+- [x] 6.2.3.4 Integrate StateManager with PriorityQueueManager for ALL API requests
+- [x] 6.2.3.5 Implement queue request creation for company status checks (HIGH priority)
 - [ ] 6.2.3.6 Implement queue request creation for officer fetches (MEDIUM priority)
-- [ ] 6.2.3.7 Add queue response processing and state transitions
+- [x] 6.2.3.7 Add queue response processing and state transitions
 - [ ] 6.2.3.8 Verify zero direct API calls remain in streaming service
 - [ ] 6.2.3.9 Verify all integration tests pass
 
