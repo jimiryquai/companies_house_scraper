@@ -305,7 +305,7 @@ class StreamingClient:
                     elif response.status != 200:
                         raise ClientError(f"Stream request failed with status {response.status}")
 
-                    logger.info("Event stream established")
+                    logger.info("Event stream established - HTTP 200 OK received")
                     retries = 0  # Reset retry counter on successful connection
                     backoff = self.config.initial_backoff
                     # Reset failure count after successful stream establishment
@@ -313,16 +313,17 @@ class StreamingClient:
 
                     # Process streaming data line by line
                     logger.info("🔄 Starting to read streaming data...")
+                    logger.info("⏳ Waiting for Companies House to send events (connection is open)...")
                     line_count = 0
                     last_heartbeat_log = datetime.now()
                     async for line in response.content:
                         line_count += 1
 
-                        # Log heartbeat every 30 seconds to prove connection is alive
+                        # Log heartbeat every 5 seconds to show activity
                         now = datetime.now()
-                        if (now - last_heartbeat_log).total_seconds() >= 30:
+                        if (now - last_heartbeat_log).total_seconds() >= 5:
                             logger.info(
-                                f"💓 Streaming heartbeat - processed {line_count} lines so far"
+                                f"💓 Streaming heartbeat - processed {line_count} lines, waiting for events..."
                             )
                             last_heartbeat_log = now
 
