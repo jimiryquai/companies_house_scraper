@@ -116,6 +116,8 @@ class SimplifiedStreamingService:
         if not self.streaming_client:
             raise RuntimeError("Streaming client not initialized")
 
+        logger.info("Connecting to streaming API...")
+        await self.streaming_client.connect()
         logger.info("Starting to stream events...")
 
         try:
