@@ -27,7 +27,7 @@ dependencies = [
 
 # Add tool.setuptools table for packages
 [tool.setuptools]
-packages = ["streaming", "monitoring"]
+packages = ["streaming", "database"]
 package-dir = {"" = "src"}
 
 [dependency-groups]
