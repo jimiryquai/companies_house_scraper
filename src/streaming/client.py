@@ -163,8 +163,10 @@ class StreamingClient:
         await self._wait_for_rate_limit()
 
         if self.session is None or self.session.closed:
-            timeout = ClientTimeout(total=self.config.connection_timeout)
-            connector = aiohttp.TCPConnector(limit=10, limit_per_host=5, keepalive_timeout=30)
+            # For streaming connections, set sock_read timeout but no total timeout
+            # This allows the connection to stay open indefinitely waiting for events
+            timeout = ClientTimeout(total=None, sock_read=300)  # 5 min read timeout
+            connector = aiohttp.TCPConnector(limit=10, limit_per_host=5, keepalive_timeout=300)
 
             # Create Basic auth header (API key + colon, then base64 encode)
             api_key_with_colon = f"{self.config.streaming_api_key}:"
