@@ -1,646 +1,304 @@
 #!/usr/bin/env python3
-"""Main Companies House Streaming Service Runner.
+"""Simplified Companies House Streaming Service.
 
-This script integrates all streaming components to provide real-time monitoring
-of company status changes, particularly for strike-off status detection.
-Integrates with existing officer import workflow and database cleanup.
+This service listens to the Companies House streaming API and syncs
+company and officer data directly to PostgreSQL.
+
+Workflow:
+1. Listen to streaming API for company change events
+2. Fetch company data from CH REST API → Upsert to PostgreSQL
+3. Fetch officers data from CH REST API → Upsert to PostgreSQL
 """
 
 import asyncio
 import logging
 import os
+import queue
 import signal
 import sys
-from datetime import datetime
 from typing import Any, Optional
 
-import yaml
+import requests
 
-# Import streaming components
-from src.streaming import (
-    CompaniesHouseAPIProcessor,
-    CompanyEvent,
-    CompanyStateManager,
-    ErrorAlertManager,
-    EventProcessor,
-    HealthMonitor,
-    PriorityQueueManager,
-    RequestPriority,
-    StreamingClient,
-    StreamingConfig,
-    StreamingDatabase,
+from src.database import CompaniesTable, Database, OfficersTable
+from src.streaming import StreamingClient, StreamingConfig
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 
-
-def load_config() -> dict[str, Any]:
-    """Load configuration from config.yaml file."""
-    logger = logging.getLogger("streaming_service")
-    try:
-        with open("config.yaml") as file:
-            config = yaml.safe_load(file)
-            return config or {}
-    except Exception as e:
-        logger.error(f"Error loading config: {e}")
-        return {
-            "api": {"key": os.environ.get("COMPANIES_HOUSE_API_KEY", "")},
-            "rate_limit": {
-                "calls": 600,
-                "period": 300,  # 5 minutes
-            },
-        }
+logger = logging.getLogger(__name__)
 
 
-class StreamingService:
-    """Main streaming service that coordinates all components."""
+class SimplifiedStreamingService:
+    """Simplified streaming service that syncs directly to PostgreSQL.
 
-    def __init__(self, config: StreamingConfig) -> None:
-        """Initialize the streaming service with configuration."""
-        self.config = config
+    This service uses 3 separate Companies House Developer Hub applications:
+    1. Streaming API - for real-time events
+    2. Companies REST API - for fetching company data (600 req/5min)
+    3. Officers REST API - for fetching officer data (600 req/5min)
+    """
+
+    def __init__(
+        self,
+        streaming_config: StreamingConfig,
+        database_url: str,
+        companies_api_key: str,
+        officers_api_key: str,
+    ) -> None:
+        """Initialize the streaming service.
+
+        Args:
+            streaming_config: Configuration for streaming API client
+            database_url: PostgreSQL database connection URL
+            companies_api_key: API key for Companies REST API (App #2)
+            officers_api_key: API key for Officers REST API (App #3)
+        """
+        self.streaming_config = streaming_config
+        self.database_url = database_url
+        self.companies_api_key = companies_api_key
+        self.officers_api_key = officers_api_key
+
+        # Initialize components
+        self.streaming_client: Optional[StreamingClient] = None
+        self.db = Database(database_url)
+        self.companies_table = CompaniesTable(self.db)
+        self.officers_table = OfficersTable(self.db)
+
+        # In-memory event queue
+        self.event_queue: queue.Queue[dict[str, Any]] = queue.Queue()
+
+        # Control flags
         self.is_running = False
         self.shutdown_event = asyncio.Event()
 
-        # Initialize components
-        self.client: Optional[StreamingClient] = None
-        self.event_processor: Optional[EventProcessor] = None
-        self.database: Optional[StreamingDatabase] = None
-        self.health_monitor: Optional[HealthMonitor] = None
-        self.error_alerting: Optional[ErrorAlertManager] = None
-        self.queue_manager: Optional[PriorityQueueManager] = None
-        self.ch_api_processor: Optional[CompaniesHouseAPIProcessor] = None
-        self.company_state_manager: Optional[CompanyStateManager] = None
-
-        # API keys
-        self.api_key = config.rest_api_key  # For REST API calls
-
-        # Setup logging
-        self.logger = self._setup_logging()
-
         # Statistics
-        self.stats: dict[str, Any] = {
-            "start_time": datetime.now(),
-            "companies_processed": 0,
+        self.stats = {
+            "events_received": 0,
+            "companies_synced": 0,
+            "officers_synced": 0,
             "errors": 0,
-            "cleanup_operations": 0,
         }
 
-    def _setup_logging(self) -> logging.Logger:
-        """Configure structured logging for the service."""
-        logger = logging.getLogger("streaming_service")
-        logger.setLevel(getattr(logging, self.config.log_level.upper()))
+    async def start(self) -> None:
+        """Start the streaming service."""
+        logger.info("Starting simplified streaming service...")
+        self.is_running = True
 
-        # Create handler if not exists
-        if not logger.handlers:
-            handler = logging.StreamHandler(sys.stdout)
-            formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
+        # Initialize database schema
+        logger.info("Initializing database schema...")
+        self.db.init_schema()
 
-            # Add file handler if configured
-            if self.config.log_file:
-                file_handler = logging.FileHandler(self.config.log_file)
-                file_handler.setFormatter(formatter)
-                logger.addHandler(file_handler)
+        # Initialize streaming client
+        self.streaming_client = StreamingClient(self.streaming_config)
 
-        return logger
+        # Setup signal handlers for graceful shutdown
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(self.shutdown()))
 
-    async def initialize_components(self) -> None:
-        """Initialize all streaming components."""
         try:
-            self.logger.info("Initializing streaming service components...")
-
-            # Initialize database
-            self.database = StreamingDatabase(self.config)
-            await self.database.connect()
-
-            # Initialize streaming client
-            self.client = StreamingClient(self.config)
-
-            # Initialize event processor
-            self.event_processor = EventProcessor(self.config)
-
-            # Register event handlers
-            self.event_processor.register_event_handler(
-                "company-profile", self._handle_company_event
+            # Start streaming client and event processor in parallel
+            await asyncio.gather(
+                self._stream_events(),
+                self._process_events(),
             )
+        except Exception as e:
+            logger.error(f"Service error: {e}", exc_info=True)
+        finally:
+            await self.cleanup()
 
-            # Initialize queue manager for rate-limited API calls
-            self.queue_manager = PriorityQueueManager()
+    async def _stream_events(self) -> None:
+        """Listen to streaming API and queue events."""
+        if not self.streaming_client:
+            raise RuntimeError("Streaming client not initialized")
 
-            # Initialize company state manager
-            self.company_state_manager = CompanyStateManager(self.database.manager)
+        logger.info("Starting to stream events...")
 
-            # Initialize CH API processor
-            self.ch_api_processor = CompaniesHouseAPIProcessor(
-                config=self.config,
-                queue_manager=self.queue_manager,
-                company_state_manager=self.company_state_manager,
-                enrichment_callback=None,  # Will be set up later if needed
-            )
+        try:
+            async for event in self.streaming_client.stream_events():
+                if not self.is_running:
+                    break
 
-            # Initialize health monitor (will be set up after client is ready)
-            self.health_monitor = None
-
-            # Initialize error alerting (simplified without requiring config for now)
-            self.error_alerting = None  # Will implement later if needed
-
-            self.logger.info("All components initialized successfully")
+                self.stats["events_received"] += 1
+                self.event_queue.put(event)
+                logger.debug(f"Queued event for company {event.get('resource_id', 'unknown')}")
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize components: {e}")
-            raise
+            logger.error(f"Error streaming events: {e}", exc_info=True)
+            await self.shutdown()
 
-    async def _handle_company_event(self, event_data: dict[str, Any]) -> None:
-        """Handle company profile events from the stream.
+    async def _process_events(self) -> None:
+        """Process queued events and sync to PostgreSQL."""
+        logger.info("Starting event processor...")
 
-        Args:
-            event_data: Raw event data from Companies House stream
-        """
-        try:
-            # Parse the event
-            company_event = CompanyEvent.from_dict(event_data)
+        while self.is_running or not self.event_queue.empty():
+            try:
+                # Get event from queue (non-blocking with timeout)
+                try:
+                    event = self.event_queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
 
-            self.logger.debug(f"Processing company event for {company_event.company_number}")
+                # Process the event
+                await self._process_event(event)
 
-            # NOTE: Streaming API only provides basic company_status ("active", "dissolved", etc.)
-            # To get detailed status like "Active - Proposal to Strike Off", we need to
-            # hit the REST API for each company that has changed
-
-            # Fetch detailed company info from REST API
-            await self._process_company_with_rest_api(company_event.company_number)
-
-            self.stats["companies_processed"] += 1
-
-        except Exception as e:
-            self.logger.error(f"Error handling company event: {e}")
-            self.stats["errors"] += 1
-
-    async def _process_company_with_rest_api(self, company_number: str) -> None:
-        """Queue a request to fetch detailed company info through the queue system.
-
-        This method now uses the PriorityQueueManager to ensure all API calls
-        go through the queue system, preventing direct API calls that could
-        violate rate limits.
-
-        Args:
-            company_number: Company number to fetch detailed info for
-        """
-        try:
-            self.logger.debug(f"Queueing company status check for {company_number}")
-
-            # Import queue manager and create request
-            import uuid
-
-            from src.streaming.queue_manager import (
-                PriorityQueueManager,
-                QueuedRequest,
-                RequestPriority,
-            )
-
-            # Initialize queue manager if not already done
-            if not hasattr(self, "queue_manager"):
-                self.queue_manager = PriorityQueueManager()
-
-            # Create a high-priority request for company status check
-            request = QueuedRequest(
-                request_id=str(uuid.uuid4()),
-                priority=RequestPriority.HIGH,  # Status checks are high priority
-                endpoint=f"/company/{company_number}",
-                params={"company_number": company_number},
-                callback=self._handle_company_status_response,  # Will be called with response
-            )
-
-            # Enqueue the request
-            success = await self.queue_manager.enqueue(request)
-
-            if success:
-                self.logger.info(f"Successfully queued status check for company {company_number}")
-
-                # Update state manager if available
-                if hasattr(self, "state_manager"):
-                    await self.state_manager.update_state(
-                        company_number=company_number,
-                        state="status_queued",
-                        status_request_id=request.request_id,
-                    )
-            else:
-                self.logger.warning(
-                    f"Failed to queue status check for company {company_number} - queue may be full"
-                )
+            except Exception as e:
+                logger.error(f"Error processing event: {e}", exc_info=True)
                 self.stats["errors"] += 1
 
-        except Exception as e:
-            self.logger.error(f"Error queueing company status check for {company_number}: {e}")
-            self.stats["errors"] += 1
-
-    async def _handle_company_status_response(
-        self, request: "QueuedRequest", response: dict
-    ) -> None:
-        """Handle the response from a queued company status check.
-
-        This callback is invoked by the queue manager when the API request completes.
+    async def _process_event(self, event: dict[str, Any]) -> None:
+        """Process a single company event.
 
         Args:
-            request: The original queued request
-            response: The API response data
+            event: Company event from streaming API
         """
+        # Extract company number from event
+        company_number = event.get("resource_id", "")
+        if not company_number:
+            logger.warning(f"Event missing company number: {event}")
+            return
+
+        logger.info(f"Processing event for company {company_number}")
+
         try:
-            company_number = request.company_number
+            # Step 1: Fetch company data using Companies API (App #2)
+            company_data = await self._fetch_company_data(company_number)
+            if not company_data:
+                logger.warning(f"No company data found for {company_number}")
+                return
 
-            if response.get("status") == 200:
-                company_data = response.get("data", {})
-                detailed_status = company_data.get("company_status_detail")
+            # Step 2: Upsert company to PostgreSQL
+            self.companies_table.upsert_company(company_data)
+            self.stats["companies_synced"] += 1
+            logger.info(f"Synced company {company_number} to PostgreSQL")
 
-                self.logger.debug(f"Company {company_number} detailed status: {detailed_status}")
+            # Step 3: Fetch officers data using Officers API (App #3)
+            officers_data = await self._fetch_officers_data(company_number)
 
-                # Check if this is a strike-off status
-                if detailed_status and self._is_strike_off_status(detailed_status):
-                    await self._handle_strike_off_company(
-                        company_number, detailed_status, company_data
-                    )
-                else:
-                    # No detailed status or not strike-off status
-                    status_display = detailed_status if detailed_status else "no detailed status"
-                    await self._handle_non_strike_off_company(company_number, status_display)
-
-                # Update state manager if available
-                if hasattr(self, "state_manager"):
-                    await self.state_manager.update_state(
-                        company_number=company_number, state="status_fetched"
-                    )
-
-            elif response.get("status") == 404:
-                self.logger.debug(f"Company {company_number} not found (404)")
-            elif response.get("status") == 429:
-                self.logger.warning(f"Rate limited while fetching company {company_number}")
-                # Queue manager should handle retry with backoff
-            else:
-                self.logger.warning(
-                    f"Failed to fetch company {company_number}: HTTP {response.get('status')}"
-                )
+            # Step 4: Upsert officers to PostgreSQL
+            if officers_data:
+                self.officers_table.upsert_officers(company_number, officers_data)
+                self.stats["officers_synced"] += len(officers_data)
+                logger.info(f"Synced {len(officers_data)} officers for {company_number}")
 
         except Exception as e:
-            self.logger.error(
-                f"Error handling company status response for {request.company_number}: {e}"
-            )
+            logger.error(f"Failed to process company {company_number}: {e}", exc_info=True)
             self.stats["errors"] += 1
 
-    def _get_adaptive_delay(self) -> float:
-        """Get adaptive delay based on UK business hours and officer import status.
+    async def _fetch_company_data(self, company_number: str) -> Optional[dict[str, Any]]:
+        """Fetch company data from Companies House REST API.
+
+        Uses dedicated Companies API key (App #2 - 600 req/5min).
+
+        Args:
+            company_number: Company number to fetch
 
         Returns:
-            Delay in seconds between REST API calls
+            Company data dictionary or None if not found
         """
-        import datetime
-
-        # Get current UK time
-        uk_time = datetime.datetime.now()  # Assuming server runs in UK timezone
-        hour = uk_time.hour
-
-        # UK Business Hours: 9 AM - 5 PM (high competition with officer import)
-        if 9 <= hour < 17:
-            # BUSINESS HOURS: Much longer delay to leave capacity for officer import
-            # 2 seconds = 30 calls/min = 150 calls/5min (leaves 450 calls for officer import)
-            delay = 2.0
-            self.logger.debug(f"Business hours (hour {hour}): Using {delay}s delay")
-        else:
-            # OFF-HOURS: Shorter delay since officer import may be paused
-            # 1 second = 60 calls/min = 300 calls/5min (moderate usage)
-            delay = 1.0
-            self.logger.debug(f"Off hours (hour {hour}): Using {delay}s delay")
-
-        return delay
-
-    def _is_strike_off_status(self, status: Optional[str]) -> bool:
-        """Check if a status indicates strike-off.
-
-        Args:
-            status: Company status to check
-
-        Returns:
-            True if status indicates strike-off
-        """
-        if not status:
-            return False
-
-        status_lower = status.lower()
-        return (
-            "proposal to strike off" in status_lower
-            or "struck off" in status_lower
-            or "strike off" in status_lower
-        )
-
-    async def _handle_strike_off_company(
-        self,
-        company_number: str,
-        status: str,
-        company_data: dict[str, Any],  # noqa: ARG002
-    ) -> None:
-        """Handle a company entering strike-off status.
-
-        Args:
-            company_number: Company number
-            status: Detailed company status
-            company_data: Full company data from REST API
-        """
-        self.logger.info(f"Strike-off status detected for company {company_number}: {status}")
+        url = f"https://api.company-information.service.gov.uk/company/{company_number}"
+        headers = {"Authorization": self.companies_api_key}
 
         try:
-            # Check if company already exists in our database
-            existing_company = await self._check_company_in_database(company_number)
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            return response.json()  # type: ignore[no-any-return]
+        except requests.RequestException as e:
+            logger.error(f"Error fetching company {company_number}: {e}")
+            return None
 
-            if existing_company:
-                self.logger.info(f"Company {company_number} already in database")
-            else:
-                self.logger.info(f"New strike-off company {company_number}")
-                # Fetch officers for this company using existing API
-                await self._fetch_and_store_officers(company_number)
+    async def _fetch_officers_data(self, company_number: str) -> list[dict[str, Any]]:
+        """Fetch officers data from Companies House REST API.
 
-        except Exception as e:
-            self.logger.error(f"Error processing strike-off company {company_number}: {e}")
-            self.stats["errors"] += 1
-
-    async def _handle_non_strike_off_company(self, company_number: str, status: str) -> None:
-        """Handle a company that is not in strike-off status.
-
-        Args:
-            company_number: Company number
-            status: Detailed company status
-        """
-        try:
-            # Check if this company exists in our database
-            # (our database only has strike-off companies)
-            existing_company = await self._check_company_in_database(company_number)
-
-            if existing_company:
-                # Company exists in our database, which means it was previously in strike-off status
-                # Now it has a different status, so we should clean it up
-                self.logger.info(
-                    f"Company {company_number} left strike-off status: "
-                    f"was '{existing_company['company_status_detail']}' now '{status}'"
-                )
-
-                await self._cleanup_company_records(company_number)
-                self.stats["cleanup_operations"] += 1
-            else:
-                # Company not in our database - just a regular company, ignore it
-                self.logger.debug(f"Company {company_number} not in our database - ignoring")
-
-        except Exception as e:
-            self.logger.error(f"Error processing non-strike-off company {company_number}: {e}")
-            self.stats["errors"] += 1
-
-    async def _fetch_and_store_officers(self, company_number: str) -> None:
-        """Queue officers request using the new queue-based architecture.
+        Uses dedicated Officers API key (App #3 - 600 req/5min).
 
         Args:
             company_number: Company number to fetch officers for
-        """
-        if not self.queue_manager:
-            self.logger.error("Queue manager not initialized")
-            return
-
-        try:
-            self.logger.info(f"Queuing officers request for company {company_number}")
-
-            # Create company processing state record
-            if self.database:
-                async with self.database.manager.get_connection() as conn:
-                    # Insert or update company processing state
-                    await conn.execute(
-                        """
-                        INSERT OR REPLACE INTO company_processing_state
-                        (company_number, processing_state, created_at, updated_at, officers_queued_at)
-                        VALUES (?, ?, ?, ?, ?)
-                    """,
-                        (
-                            company_number,
-                            "officers_queued",
-                            datetime.now().isoformat(),
-                            datetime.now().isoformat(),
-                            datetime.now().isoformat(),
-                        ),
-                    )
-                    await conn.commit()
-
-            # Queue the officers request with HIGH priority (strike-off detection)
-            from src.streaming.queue_manager import QueuedRequest
-
-            request = QueuedRequest(
-                request_id=f"officers_{company_number}_{int(datetime.now().timestamp())}",
-                priority=RequestPriority.HIGH,
-                endpoint=f"/company/{company_number}/officers",
-                params={
-                    "company_number": company_number,
-                    "reason": "strike_off_detection",
-                    "queued_at": datetime.now().isoformat(),
-                },
-            )
-            success = await self.queue_manager.enqueue(request)
-
-            if success:
-                self.logger.info(
-                    f"Successfully queued officers request for company {company_number}"
-                )
-                self.stats["companies_processed"] += 1
-            else:
-                self.logger.error(f"Failed to queue officers request for company {company_number}")
-                self.stats["errors"] += 1
-
-        except Exception as e:
-            self.logger.error(f"Error queuing officers request for {company_number}: {e}")
-            self.stats["errors"] += 1
-
-    async def _cleanup_company_records(self, company_number: str) -> None:
-        """Clean up records for a company no longer in strike-off status.
-
-        Args:
-            company_number: Company number to clean up
-        """
-        try:
-            self.logger.info(f"Cleaning up records for company {company_number}")
-
-            # For audit purposes, we'll mark the company as no longer tracked rather than delete
-            if self.database:
-                async with self.database.manager.get_connection() as conn:
-                    # Update the company status to indicate it's no longer in strike-off
-                    await conn.execute(
-                        "UPDATE companies SET company_status_detail = ?, "
-                        "stream_last_updated = ? WHERE company_number = ?",
-                        ("Left strike-off status", datetime.now().isoformat(), company_number),
-                    )
-                    await conn.commit()
-
-                    self.logger.info(
-                        f"Updated database: company {company_number} marked as left strike-off"
-                    )
-
-            self.logger.info(f"Cleanup completed for company {company_number}")
-
-        except Exception as e:
-            self.logger.error(f"Error cleaning up company {company_number}: {e}")
-
-    async def _check_company_in_database(self, company_number: str) -> Optional[dict[str, Any]]:
-        """Check if company exists in our database and return its current status.
-
-        Args:
-            company_number: Company number to check
 
         Returns:
-            Dictionary with company data if found, None if not found
+            List of officer data dictionaries
         """
-        try:
-            if not self.database:
-                return None
-
-            # Use the database manager to get connection
-            async with self.database.manager.get_connection() as conn:
-                cursor = await conn.execute(
-                    "SELECT company_number, company_status_detail FROM companies "
-                    "WHERE company_number = ?",
-                    (company_number,),
-                )
-                row = await cursor.fetchone()
-
-                if row:
-                    return {"company_number": row[0], "company_status_detail": row[1]}
-                return None
-
-        except Exception as e:
-            self.logger.error(f"Error checking company {company_number} in database: {e}")
-            return None
-
-    async def start_streaming(self) -> None:
-        """Start the streaming service and process events."""
-        if not self.client or not self.event_processor:
-            raise RuntimeError("Components not initialized")
-
-        self.logger.info("Starting Companies House streaming service...")
-        self.is_running = True
+        url = f"https://api.company-information.service.gov.uk/company/{company_number}/officers"
+        headers = {"Authorization": self.officers_api_key}
 
         try:
-            # Connect to streaming API
-            await self.client.connect()
-
-            # Initialize health monitor now that client is ready
-            self.health_monitor = HealthMonitor(self.client)
-
-            # Start health monitoring
-            if self.health_monitor:
-                asyncio.create_task(self.health_monitor.start_monitoring())
-
-            # Start CH API processor
-            if self.ch_api_processor:
-                self.logger.info("🚀 Starting Companies House API processor...")
-                asyncio.create_task(self.ch_api_processor.start_processing())
-
-            # Start processing events
-            self.logger.info("🔄 Starting event processing loop...")
-            async for event in self.client.stream_events():
-                if self.shutdown_event.is_set():
-                    break
-
-                self.logger.info(
-                    f"📨 Service received event: {event.get('resource_id', 'unknown')}"
-                )
-
-                # Process event
-                await self.event_processor.process_event(event)
-
-                # Log statistics periodically
-                if self.stats["companies_processed"] % 100 == 0:
-                    self._log_statistics()
-
-        except Exception as e:
-            self.logger.error(f"Error in streaming service: {e}")
-            if self.error_alerting:
-                # Would send alert in full implementation
-                self.logger.error(f"Would send alert: Streaming service error: {e}")
-            raise
-        finally:
-            self.is_running = False
-            if self.health_monitor:
-                await self.health_monitor.stop_monitoring()
-
-    def _log_statistics(self) -> None:
-        """Log current service statistics."""
-        uptime = datetime.now() - self.stats["start_time"]
-
-        self.logger.info(
-            f"Service statistics - Uptime: {uptime}, "
-            f"Companies processed: {self.stats['companies_processed']}, "
-            f"Officers imported: {self.stats.get('officers_imported', 0)}, "
-            f"Cleanup operations: {self.stats['cleanup_operations']}, "
-            f"Errors: {self.stats['errors']}"
-        )
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("items", [])  # type: ignore[no-any-return]
+        except requests.RequestException as e:
+            logger.error(f"Error fetching officers for {company_number}: {e}")
+            return []
 
     async def shutdown(self) -> None:
-        """Gracefully shutdown the streaming service."""
-        self.logger.info("Shutting down streaming service...")
+        """Gracefully shutdown the service."""
+        if not self.is_running:
+            return
+
+        logger.info("Shutting down streaming service...")
+        self.is_running = False
         self.shutdown_event.set()
 
-        if self.ch_api_processor:
-            await self.ch_api_processor.stop_processing()
+        # Print final statistics
+        logger.info("Final statistics:")
+        logger.info(f"  Events received: {self.stats['events_received']}")
+        logger.info(f"  Companies synced: {self.stats['companies_synced']}")
+        logger.info(f"  Officers synced: {self.stats['officers_synced']}")
+        logger.info(f"  Errors: {self.stats['errors']}")
 
-        if self.client:
-            await self.client.disconnect()
-
-        if self.database:
-            await self.database.disconnect()
-
-        self._log_statistics()
-        self.logger.info("Streaming service shutdown complete")
-
-    def setup_signal_handlers(self) -> None:
-        """Setup signal handlers for graceful shutdown."""
-
-        def signal_handler(sig: int, _frame: Any) -> None:
-            self.logger.info(f"Received signal {sig}, initiating shutdown...")
-            asyncio.create_task(self.shutdown())
-
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
+    async def cleanup(self) -> None:
+        """Clean up resources."""
+        if self.streaming_client:
+            await self.streaming_client.disconnect()
+        self.db.close()
+        logger.info("Cleanup complete")
 
 
 async def main() -> None:
     """Main entry point for the streaming service."""
-    try:
-        # Load configuration from config.yaml (same as officer import)
-        yaml_config = load_config()
-        streaming_api_key = yaml_config.get("api", {}).get("streaming_key", "")
-        rest_api_key = yaml_config.get("api", {}).get("key", "")
+    # Load configuration from environment
+    streaming_config = StreamingConfig(
+        streaming_api_key=os.getenv("CH_STREAMING_API_KEY", ""),  # App #1
+        rest_api_key=os.getenv("CH_COMPANIES_API_KEY", ""),  # App #2 (for compatibility)
+    )
 
-        if not streaming_api_key:
-            raise ValueError("streaming_key not found in config.yaml")
-
-        if not rest_api_key:
-            raise ValueError("REST API key not found in config.yaml")
-
-        # Create streaming config with keys from yaml
-        config = StreamingConfig(
-            streaming_api_key=streaming_api_key,
-            rest_api_key=rest_api_key,
-            api_base_url=yaml_config.get("api_endpoints", {}).get(
-                "stream_base_url", "https://stream.companieshouse.gov.uk"
-            ),
-        )
-
-        # Create and initialize service
-        service = StreamingService(config)
-        service.setup_signal_handlers()
-
-        await service.initialize_components()
-
-        # Start streaming
-        await service.start_streaming()
-
-    except KeyboardInterrupt:
-        logger = logging.getLogger("streaming_service")
-        logger.info("Received interrupt signal, shutting down...")
-    except Exception as e:
-        logger = logging.getLogger("streaming_service")
-        logger.error(f"Fatal error: {e}")
+    # Get PostgreSQL database URL
+    database_url = os.getenv("DATABASE_URL", "")
+    if not database_url:
+        logger.error("DATABASE_URL environment variable is required")
         sys.exit(1)
+
+    # Get separate API keys for Companies and Officers APIs
+    companies_api_key = os.getenv("CH_COMPANIES_API_KEY", "")
+    officers_api_key = os.getenv("CH_OFFICERS_API_KEY", "")
+
+    if not companies_api_key:
+        logger.error("CH_COMPANIES_API_KEY environment variable is required")
+        sys.exit(1)
+    if not officers_api_key:
+        logger.error("CH_OFFICERS_API_KEY environment variable is required")
+        sys.exit(1)
+
+    # Create and start service
+    service = SimplifiedStreamingService(
+        streaming_config=streaming_config,
+        database_url=database_url,
+        companies_api_key=companies_api_key,
+        officers_api_key=officers_api_key,
+    )
+
+    await service.start()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Service interrupted by user")
+    except Exception as e:
+        logger.error(f"Service failed: {e}", exc_info=True)
+        sys.exit(1)

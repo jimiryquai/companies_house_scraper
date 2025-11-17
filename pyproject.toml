@@ -22,17 +22,16 @@ dependencies = [
     "pydantic-settings>=2.0",
     "aiohttp>=3.8.0", # For async HTTP streaming
     "tqdm>=4.0.0", # For progress bars
-    "flask>=3.1.2",
+    "psycopg2-binary>=2.9.0", # PostgreSQL database adapter
 ]
 
 # Add tool.setuptools table for packages
 [tool.setuptools]
-packages = ["enrichment", "streaming", "monitoring"]
+packages = ["streaming", "monitoring"]
 package-dir = {"" = "src"}
 
 [dependency-groups]
 dev = [
-    "aiosqlite>=0.20.0",
     "psutil>=7.0.0",
     "pytest>=8.3.5",
     "pytest-asyncio>=0.24.0",
@@ -95,6 +94,7 @@ module = [
     "requests.*",
     "yaml.*",
     "loguru.*",
+    "psycopg2.*",
 ]
 ignore_missing_imports = true
 

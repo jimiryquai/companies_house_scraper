@@ -1,131 +1,327 @@
-# Companies House Strike-Off Lead Generator
+# Companies House → PostgreSQL Integration
 
-A Python-based system for identifying UK companies in distress (with "Active - Proposal to Strike Off" status) and extracting director information for Business Reset Group's lead generation efforts.
+Real-time sync of Companies House data to PostgreSQL using the Streaming API.
 
 ## Overview
 
-This system processes Companies House bulk data to identify companies facing potential closure and enriches this data with officer/director information via the Companies House API. The data is stored in a local SQLite database and can be exported to CSV for CRM integration.
+This system listens to the Companies House Streaming API for real-time company change events and automatically syncs company and officer data to PostgreSQL.
 
-## Current Workflow (Two-Step Process)
+### Simplified Workflow
 
-### Step 1: Import Companies from Bulk Data
-1. Download the latest bulk company data CSV from Companies House:
-   - Visit: https://download.companieshouse.gov.uk/en_output.html
-   - Download: `BasicCompanyDataAsOneFile-YYYY-MM-DD.csv`
-   - Place the CSV file in the project root directory
+```
+1. Streaming API → Company change events
+2. Companies REST API → Fetch company data → PostgreSQL
+3. Officers REST API → Fetch officer data → PostgreSQL
+```
 
-2. Run the import script to filter and store companies with strike-off status:
-   ```bash
-   python import_companies.py
-   ```
-   This will:
-   - Parse the CSV file (contains millions of records)
-   - Filter for companies with status "Active - Proposal to Strike Off"
-   - Store filtered companies in `companies.db` SQLite database
-   - Process in batches for memory efficiency
+### Key Features
 
-### Step 2: Fetch Officer/Director Information
-3. Run the officer import script to get director details via API:
-   ```bash
-   python officer_import.py
-   ```
-   This will:
-   - Read companies with strike-off status from the database
-   - Make API calls to get officer/director information for each company
-   - Respect Companies House API rate limits (600 calls per 5 minutes)
-   - Save officer data to the database
-   - Support resumable processing (can be interrupted and restarted)
-   - **Note:** This process takes several days due to API rate limits
+- **Real-time Sync**: Streaming API provides instant notifications of company changes
+- **Separate Rate Limits**: 3 independent CH Developer Hub applications = 1800 requests per 5 minutes total
+- **PostgreSQL Database**: Production-ready database with concurrent access support
+- **n8n Compatible**: Native PostgreSQL support for workflow automation
+- **Automatic Upsert**: Creates new records or updates existing ones automatically
+- **Railway Ready**: Deploy to Railway with zero configuration
 
-### Step 3: Export Data
-4. Export the enriched data to CSV:
-   ```bash
-   python export_to_csv.py
-   ```
-   This creates CSV files with company and officer information ready for CRM import.
+## Architecture
+
+### 3 Companies House Developer Hub Applications
+
+This integration uses **3 separate** CH Developer Hub applications for independent rate limiting:
+
+| Application | Purpose | Rate Limit | Environment Variable |
+|-------------|---------|------------|---------------------|
+| **App #1** | Streaming API | No limit | `CH_STREAMING_API_KEY` |
+| **App #2** | Companies REST API | 600 req / 5 min | `CH_COMPANIES_API_KEY` |
+| **App #3** | Officers REST API | 600 req / 5 min | `CH_OFFICERS_API_KEY` |
+
+**Total capacity**: 1800 API requests per 5 minutes (Companies + Officers combined)
+
+### Data Flow Diagram
+
+See: `docs/architecture/simplified_streaming_architecture.svg`
+
+## Setup
+
+### Prerequisites
+
+- Python 3.9+
+- PostgreSQL database (local or Railway)
+- 3 Companies House Developer Hub applications (see above)
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/companies_house_scraper.git
+cd companies_house_scraper
+```
+
+2. Install dependencies using `uv`:
+```bash
+uv sync
+```
+
+3. Configure environment variables:
+```bash
+cp .env.example .env
+# Edit .env with your database URL and API keys
+```
+
+### PostgreSQL Setup
+
+#### Option 1: Railway (Recommended)
+
+See `docs/RAILWAY_DEPLOYMENT.md` for complete Railway deployment guide with PostgreSQL.
+
+Railway provides:
+- Free PostgreSQL database
+- Automatic DATABASE_URL configuration
+- Zero-configuration deployment
+- n8n compatibility
+
+#### Option 2: Local PostgreSQL
+
+1. Install PostgreSQL locally
+2. Create a database:
+```bash
+createdb companies_house
+```
+
+3. Add connection URL to `.env`:
+```bash
+DATABASE_URL=postgresql://user:password@localhost:5432/companies_house
+```
+
+4. Test database connection:
+```bash
+uv run python test_database.py
+```
+
+The schema will be automatically initialized on first run.
+
+### Companies House API Setup
+
+1. Create 3 separate applications at: https://developer.company-information.service.gov.uk/
+   - **App #1**: "Streaming API Access"
+   - **App #2**: "Companies REST API Access"
+   - **App #3**: "Officers REST API Access"
+
+2. Add the API keys to `.env`:
+```bash
+CH_STREAMING_API_KEY=your_streaming_key
+CH_COMPANIES_API_KEY=your_companies_key
+CH_OFFICERS_API_KEY=your_officers_key
+```
+
+## Running the Service
+
+Start the streaming service:
+
+```bash
+uv run python streaming_service.py
+```
+
+The service will:
+1. Initialize PostgreSQL database schema
+2. Connect to Companies House Streaming API
+3. Listen for company change events
+4. For each event:
+   - Fetch company data from CH Companies API
+   - Upsert company to PostgreSQL
+   - Fetch officers data from CH Officers API
+   - Upsert officers to PostgreSQL
+
+### Monitoring
+
+The service logs:
+- Events received
+- Companies synced
+- Officers synced
+- Errors encountered
+
+Example output:
+```
+2025-11-17 15:30:00 - Starting simplified streaming service...
+2025-11-17 15:30:00 - Initializing database schema...
+2025-11-17 15:30:01 - Database schema initialized successfully
+2025-11-17 15:30:01 - Processing event for company 12345678
+2025-11-17 15:30:02 - Synced company 12345678 to PostgreSQL
+2025-11-17 15:30:03 - Synced 3 officers for 12345678
+```
 
 ## Project Structure
 
 ```
 companies_house_scraper/
-├── import_companies.py      # Step 1: Import companies from bulk CSV
-├── officer_import.py        # Step 2: Fetch officers via API
-├── export_to_csv.py        # Step 3: Export to CSV
-├── config.yaml             # Configuration (API keys, settings)
-├── companies.db            # SQLite database
-├── .agent-os/              # Agent OS documentation
-│   └── product/           # Product specifications
-└── archive/               # Experimental/unused scripts
-    ├── import_experiments/ # Various import script iterations
-    ├── api_experiments/   # API-based approaches
-    └── logs/             # Historical log files
+├── streaming_service.py          # Main service entry point
+├── test_database.py              # Database testing script
+├── src/
+│   ├── database/                # PostgreSQL integration
+│   │   ├── client.py           # Connection pooling and schema
+│   │   ├── companies.py        # Company upsert operations
+│   │   └── officers.py         # Officer upsert operations
+│   ├── streaming/               # Streaming API client
+│   └── monitoring/              # Metrics and monitoring
+├── docs/
+│   ├── RAILWAY_DEPLOYMENT.md    # Railway deployment guide
+│   ├── database_README.md       # Database schema documentation
+│   └── architecture/            # Architecture diagrams
+├── tests/                       # Test suite
+├── .env.example                 # Environment template
+├── pyproject.toml               # Dependencies and config
+└── archive/                     # Archived old workflow files
+```
+
+## Development
+
+### Code Quality
+
+This project follows strict code quality standards:
+
+```bash
+# Format code
+uv run ruff format .
+
+# Lint code
+uv run ruff check .
+
+# Type check
+uv run mypy .
+
+# Run tests
+uv run python -m pytest tests/ -v
+```
+
+All checks must pass before committing.
+
+### Testing
+
+Run the test suite:
+
+```bash
+# All tests
+uv run python -m pytest
+
+# Specific module
+uv run python -m pytest tests/streaming/
+
+# With coverage
+uv run python -m pytest --cov=src tests/
 ```
 
 ## Configuration
 
-Edit `config.yaml` to set your Companies House API key:
+### Environment Variables
 
-```yaml
-api:
-  key: YOUR_API_KEY_HERE
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `CH_STREAMING_API_KEY` | Yes | Streaming API key (App #1) |
+| `CH_COMPANIES_API_KEY` | Yes | Companies REST API key (App #2) |
+| `CH_OFFICERS_API_KEY` | Yes | Officers REST API key (App #3) |
+| `DATABASE_URL` | Yes | PostgreSQL connection URL |
+| `LOG_LEVEL` | No | Logging level (default: "INFO") |
 
-rate_limit:
-  calls: 600
-  period: 300  # 5 minutes
+**DATABASE_URL Format**:
+```
+postgresql://username:password@host:port/database
 ```
 
-Get your API key from: https://developer.company-information.service.gov.uk/
+On Railway, this is automatically provided when you add PostgreSQL.
 
-## Database Schema
+## Architecture Decisions
 
-### companies table
-- `company_number` - Unique company identifier
-- `company_name` - Company name
-- `company_status` - Current status
-- `company_status_detail` - Detailed status (e.g., "Active - Proposal to Strike Off")
-- `incorporation_date` - Date of incorporation
-- `sic_codes` - Standard Industrial Classification codes
-- Various address fields
+### Why 3 Separate CH Applications?
 
-### officers table
-- `company_number` - Links to companies table
-- `name` - Officer name
-- `officer_role` - Role (director, managing-director, etc.)
-- `appointed_on` - Appointment date
-- `resigned_on` - Resignation date (if applicable)
-- Various address and personal detail fields
+Each Companies House application has a 600 requests / 5 minutes rate limit. By using 3 separate applications:
+- **Streaming API** (App #1): No rate limit, continuous stream
+- **Companies API** (App #2): 600 req/5min dedicated to company data
+- **Officers API** (App #3): 600 req/5min dedicated to officer data
+- **Total**: 1800 API requests per 5 minutes
 
-## Requirements
+This prevents one API from blocking the other and maximizes throughput.
 
-- Python 3.8+
-- Dependencies (install with `pip install -r requirements.txt`):
-  - requests
-  - pyyaml
-  - loguru
-  - pydantic
-  - python-dateutil
-  - tqdm
+### Why PostgreSQL?
 
-## Processing Timeline
+- **Production-Ready**: Battle-tested database with ACID compliance
+- **Concurrent Access**: Multiple services can read/write simultaneously
+- **n8n Integration**: Native PostgreSQL support for workflow automation
+- **Railway Support**: Zero-configuration deployment with automatic DATABASE_URL
+- **Persistent Storage**: Data survives container restarts
+- **Standard SQL**: Universal query language for data access
+- **Free Tier**: Railway provides PostgreSQL in hobby plan
 
-Based on May 2025 implementation:
-- **CSV Import**: ~30 minutes for full UK company dataset
-- **Officer Fetching**: 3-5 days (due to API rate limits)
-- **Total Companies with Strike-Off Status**: ~15,000-20,000
-- **Directors per Company**: Average 2-3
+### Why In-Memory Queue?
 
-## Future Enhancements (Planned)
+The simplified workflow doesn't need persistent queue storage because:
+- **Fast Processing**: Events are processed immediately
+- **PostgreSQL as Source of Truth**: All data is in PostgreSQL, not local queue
+- **Restart Capability**: Streaming API will resend events on reconnection
+- **Reduced Complexity**: No queue management or message brokers needed
 
-1. **Real-time Updates**: Integration with Companies House Streaming API
-2. **Data Enrichment**: Apollo.io integration for contact details
-3. **CRM Integration**: Direct sync with GoHighLevel
-4. **Cloud Deployment**: Migration to Cloudflare Workers + D1 database
-5. **Web Interface**: Dashboard for monitoring and management
+## Deployment
 
-## Historical Context
+### Railway Deployment (Recommended)
 
-This project was initially developed in May 2025 as a one-time data extraction tool. Due to its success in generating quality leads for Business Reset Group, it's being evolved into an automated, recurring process with real-time monitoring capabilities.
+See `docs/RAILWAY_DEPLOYMENT.md` for complete deployment guide.
 
-## Support
+Quick steps:
+1. Push code to GitHub
+2. Create Railway project from GitHub repo
+3. Add PostgreSQL database in Railway
+4. Set environment variables (CH API keys)
+5. Deploy - DATABASE_URL is automatic!
 
-For issues or questions about this system, please contact the development team or refer to the Agent OS documentation in `.agent-os/product/`.
+### Manual Deployment
+
+For production deployment, consider:
+
+1. **Process Manager**: Use systemd, supervisor, or Docker to keep service running
+2. **PostgreSQL**: Set up managed PostgreSQL (Railway, AWS RDS, DigitalOcean)
+3. **Monitoring**: Set up alerts for service downtime or error rates
+4. **Logging**: Configure log aggregation (e.g., CloudWatch, Datadog)
+5. **Secrets Management**: Use environment variable management (e.g., AWS Secrets Manager)
+
+## Troubleshooting
+
+### Service Won't Start
+
+- Verify all environment variables are set in `.env`
+- Check API keys are valid at Companies House Developer Hub
+- Verify DATABASE_URL is correct and database is accessible
+- Test database connection with `uv run python test_database.py`
+
+### Rate Limiting Errors
+
+- Confirm you're using 3 separate CH applications (not the same key 3 times)
+- Check rate limit status in CH Developer Hub dashboard
+- Reduce event processing rate if needed
+
+### Database Connection Errors
+
+- Verify DATABASE_URL format: `postgresql://user:password@host:port/database`
+- Check database server is running and accessible
+- Ensure user has CREATE TABLE permissions for schema initialization
+- For Railway: verify PostgreSQL database is added to project
+
+## Contributing
+
+1. Follow code quality standards (see Development section)
+2. Write tests for new features
+3. Update documentation as needed
+4. Run all checks before committing
+
+## License
+
+MIT License - See LICENSE file for details
+
+## Links
+
+- [Companies House Developer Hub](https://developer.company-information.service.gov.uk/)
+- [Companies House Streaming API Docs](https://developer-specs.company-information.service.gov.uk/streaming-api/reference)
+- [PostgreSQL Documentation](https://www.postgresql.org/docs/)
+- [Railway Documentation](https://docs.railway.app/)
+- [n8n PostgreSQL Integration](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.postgres/)
+- [Architecture Diagram](docs/architecture/simplified_streaming_architecture.svg)
+- [Railway Deployment Guide](docs/RAILWAY_DEPLOYMENT.md)
+- [Database Schema](docs/database_README.md)
