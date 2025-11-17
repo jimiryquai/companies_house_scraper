@@ -1,0 +1,65 @@
+# Companies House Developer Hub Applications
+ch_apps: Companies House Developer Hub {
+  app1: "App #1\nStreaming API"
+  app1.style.fill: "#e3f2fd"
+
+  app2: "App #2\nCompanies REST API"
+  app2.style.fill: "#fff3e0"
+
+  app3: "App #3\nOfficers REST API"
+  app3.style.fill: "#f3e5f5"
+}
+
+# Streaming Service
+service: "Streaming Service\n(Python on Railway)" {
+  streaming_client: Streaming Client
+  event_queue: In-Memory Event Queue
+  event_processor: Event Processor
+  db_module: "Database Module\n(PostgreSQL)"
+
+  streaming_client -> event_queue: Queue events
+  event_queue -> event_processor: Process events
+  event_processor -> db_module: Upsert data
+}
+
+# PostgreSQL Database
+postgres: "PostgreSQL Database\n(Railway Managed)" {
+  companies: Companies Table
+  officers: Officers Table
+
+  companies -> officers: company_number FK
+}
+postgres.style.fill: "#e8f5e9"
+
+# n8n Workflow Automation
+n8n: n8n Workflow Automation {
+  postgres_node: PostgreSQL Node
+  workflow: Custom Workflows
+
+  postgres_node -> workflow: Query data
+}
+n8n.style.fill: "#fce4ec"
+
+# Data Flow
+ch_apps.app1 -> service.streaming_client: "SSE: Company events\n(No rate limit)"
+service.event_processor -> ch_apps.app2: "REST: Fetch company\n(600 req/5min)"
+service.event_processor -> ch_apps.app3: "REST: Fetch officers\n(600 req/5min)"
+service.db_module -> postgres: Upsert companies & officers
+postgres -> n8n.postgres_node: SQL queries
+
+# Rate Limits Info
+rate_limits: |md
+  **Rate Limits**
+
+  App #1 (Streaming): No limit
+  App #2 (Companies): 600 req/5min
+  App #3 (Officers): 600 req/5min
+  ────────────────────
+  **Total: 1800 req/5min**
+|
+rate_limits.shape: text
+
+# Deployment Note
+deployment: "Deployment: Railway\n(Zero-config PostgreSQL + Auto DATABASE_URL)"
+deployment.shape: text
+deployment.style.italic: true

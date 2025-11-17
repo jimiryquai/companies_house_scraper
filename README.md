@@ -39,7 +39,9 @@ This integration uses **3 separate** CH Developer Hub applications for independe
 
 ### Data Flow Diagram
 
-See: `docs/architecture/simplified_streaming_architecture.svg`
+See: `docs/architecture/postgresql_streaming_architecture.svg`
+
+![Architecture Diagram](docs/architecture/postgresql_streaming_architecture.svg)
 
 ## Setup
 
@@ -322,6 +324,6 @@ MIT License - See LICENSE file for details
 - [PostgreSQL Documentation](https://www.postgresql.org/docs/)
 - [Railway Documentation](https://docs.railway.app/)
 - [n8n PostgreSQL Integration](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.postgres/)
-- [Architecture Diagram](docs/architecture/simplified_streaming_architecture.svg)
+- [Architecture Diagram](docs/architecture/postgresql_streaming_architecture.svg)
 - [Railway Deployment Guide](docs/RAILWAY_DEPLOYMENT.md)
 - [Database Schema](docs/database_README.md)
