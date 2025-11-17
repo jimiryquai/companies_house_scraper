@@ -13,7 +13,6 @@ Workflow:
 import asyncio
 import logging
 import os
-import queue
 import signal
 import sys
 from typing import Any, Optional
@@ -68,8 +67,8 @@ class SimplifiedStreamingService:
         self.companies_table = CompaniesTable(self.db)
         self.officers_table = OfficersTable(self.db)
 
-        # In-memory event queue
-        self.event_queue: queue.Queue[dict[str, Any]] = queue.Queue()
+        # In-memory async event queue
+        self.event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
         # Control flags
         self.is_running = False
@@ -112,26 +111,46 @@ class SimplifiedStreamingService:
             await self.cleanup()
 
     async def _stream_events(self) -> None:
-        """Listen to streaming API and queue events."""
+        """Listen to streaming API and queue events with auto-reconnect."""
         if not self.streaming_client:
             raise RuntimeError("Streaming client not initialized")
 
-        logger.info("Connecting to streaming API...")
-        await self.streaming_client.connect()
-        logger.info("Starting to stream events...")
+        max_reconnect_attempts = 10
+        reconnect_delay = 5
 
-        try:
-            async for event in self.streaming_client.stream_events():
+        while self.is_running:
+            try:
+                logger.info("Connecting to streaming API...")
+                await self.streaming_client.connect()
+                logger.info("Successfully connected to streaming API")
+
+                # Reset reconnect delay on successful connection
+                reconnect_delay = 5
+
+                try:
+                    async for event in self.streaming_client.stream_events():
+                        if not self.is_running:
+                            break
+
+                        self.stats["events_received"] += 1
+                        await self.event_queue.put(event)
+                        logger.debug(f"Queued event for company {event.get('resource_id', 'unknown')}")
+
+                except Exception as e:
+                    logger.error(f"Error streaming events: {e}", exc_info=True)
+                    # Will retry connection in outer loop
+
+            except Exception as e:
+                logger.error(f"Failed to connect to streaming API: {e}", exc_info=True)
+
                 if not self.is_running:
                     break
 
-                self.stats["events_received"] += 1
-                self.event_queue.put(event)
-                logger.debug(f"Queued event for company {event.get('resource_id', 'unknown')}")
+                logger.info(f"Reconnecting in {reconnect_delay} seconds...")
+                await asyncio.sleep(reconnect_delay)
 
-        except Exception as e:
-            logger.error(f"Error streaming events: {e}", exc_info=True)
-            await self.shutdown()
+                # Exponential backoff up to 60 seconds
+                reconnect_delay = min(reconnect_delay * 2, 60)
 
     async def _process_events(self) -> None:
         """Process queued events and sync to PostgreSQL."""
@@ -141,8 +160,8 @@ class SimplifiedStreamingService:
             try:
                 # Get event from queue (non-blocking with timeout)
                 try:
-                    event = self.event_queue.get(timeout=1.0)
-                except queue.Empty:
+                    event = await asyncio.wait_for(self.event_queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
                     continue
 
                 # Process the event
@@ -166,30 +185,58 @@ class SimplifiedStreamingService:
 
         logger.info(f"Processing event for company {company_number}")
 
-        try:
-            # Step 1: Fetch company data using Companies API (App #2)
-            company_data = await self._fetch_company_data(company_number)
-            if not company_data:
-                logger.warning(f"No company data found for {company_number}")
-                return
+        max_retries = 3
+        retry_delay = 2
 
-            # Step 2: Upsert company to PostgreSQL
-            self.companies_table.upsert_company(company_data)
-            self.stats["companies_synced"] += 1
-            logger.info(f"Synced company {company_number} to PostgreSQL")
+        for attempt in range(max_retries):
+            try:
+                # Step 1: Fetch company data using Companies API (App #2)
+                company_data = await self._fetch_company_data(company_number)
+                if not company_data:
+                    logger.warning(f"No company data found for {company_number}")
+                    return
 
-            # Step 3: Fetch officers data using Officers API (App #3)
-            officers_data = await self._fetch_officers_data(company_number)
+                # Step 2: Upsert company to PostgreSQL with error handling
+                try:
+                    self.companies_table.upsert_company(company_data)
+                    self.stats["companies_synced"] += 1
+                    logger.info(f"Synced company {company_number} to PostgreSQL")
+                except Exception as db_error:
+                    logger.error(f"Database error upserting company {company_number}: {db_error}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    raise
 
-            # Step 4: Upsert officers to PostgreSQL
-            if officers_data:
-                self.officers_table.upsert_officers(company_number, officers_data)
-                self.stats["officers_synced"] += len(officers_data)
-                logger.info(f"Synced {len(officers_data)} officers for {company_number}")
+                # Step 3: Fetch officers data using Officers API (App #3)
+                officers_data = await self._fetch_officers_data(company_number)
 
-        except Exception as e:
-            logger.error(f"Failed to process company {company_number}: {e}", exc_info=True)
-            self.stats["errors"] += 1
+                # Step 4: Upsert officers to PostgreSQL with error handling
+                if officers_data:
+                    try:
+                        self.officers_table.upsert_officers(company_number, officers_data)
+                        self.stats["officers_synced"] += len(officers_data)
+                        logger.info(f"Synced {len(officers_data)} officers for {company_number}")
+                    except Exception as db_error:
+                        logger.error(f"Database error upserting officers for {company_number}: {db_error}")
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(retry_delay)
+                            continue
+                        raise
+
+                # Success - break retry loop
+                break
+
+            except Exception as e:
+                logger.error(f"Failed to process company {company_number} (attempt {attempt + 1}/{max_retries}): {e}", exc_info=True)
+                self.stats["errors"] += 1
+
+                if attempt < max_retries - 1:
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error(f"Giving up on company {company_number} after {max_retries} attempts")
 
     async def _fetch_company_data(self, company_number: str) -> Optional[dict[str, Any]]:
         """Fetch company data from Companies House REST API.
