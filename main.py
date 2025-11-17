@@ -15,6 +15,8 @@ import logging
 import os
 import signal
 import sys
+import time
+from collections import deque
 from typing import Any, Optional
 
 import requests
@@ -81,6 +83,12 @@ class SimplifiedStreamingService:
             "officers_synced": 0,
             "errors": 0,
         }
+
+        # Rate limiting (600 requests per 5 minutes = 300 seconds)
+        self.companies_api_calls: deque[float] = deque()
+        self.officers_api_calls: deque[float] = deque()
+        self.rate_limit_window = 300  # 5 minutes in seconds
+        self.rate_limit_max = 600  # Max requests per window
 
     async def start(self) -> None:
         """Start the streaming service."""
@@ -238,6 +246,33 @@ class SimplifiedStreamingService:
                 else:
                     logger.error(f"Giving up on company {company_number} after {max_retries} attempts")
 
+    async def _wait_for_rate_limit(self, api_calls: deque[float], api_name: str) -> None:
+        """Wait if necessary to respect rate limits.
+
+        Args:
+            api_calls: Deque tracking API call timestamps
+            api_name: Name of API for logging
+        """
+        now = time.time()
+
+        # Remove calls outside the time window
+        while api_calls and api_calls[0] < now - self.rate_limit_window:
+            api_calls.popleft()
+
+        # If at limit, wait until oldest call expires
+        if len(api_calls) >= self.rate_limit_max:
+            oldest_call = api_calls[0]
+            wait_time = (oldest_call + self.rate_limit_window) - now
+            if wait_time > 0:
+                logger.warning(
+                    f"{api_name} rate limit reached ({len(api_calls)}/{self.rate_limit_max}). "
+                    f"Waiting {wait_time:.1f}s..."
+                )
+                await asyncio.sleep(wait_time)
+
+        # Record this call
+        api_calls.append(now)
+
     async def _fetch_company_data(self, company_number: str) -> Optional[dict[str, Any]]:
         """Fetch company data from Companies House REST API.
 
@@ -249,6 +284,9 @@ class SimplifiedStreamingService:
         Returns:
             Company data dictionary or None if not found
         """
+        # Wait for rate limit before making request
+        await self._wait_for_rate_limit(self.companies_api_calls, "Companies API")
+
         url = f"https://api.company-information.service.gov.uk/company/{company_number}"
         headers = {"Authorization": self.companies_api_key}
 
@@ -271,6 +309,9 @@ class SimplifiedStreamingService:
         Returns:
             List of officer data dictionaries
         """
+        # Wait for rate limit before making request
+        await self._wait_for_rate_limit(self.officers_api_calls, "Officers API")
+
         url = f"https://api.company-information.service.gov.uk/company/{company_number}/officers"
         headers = {"Authorization": self.officers_api_key}
 
