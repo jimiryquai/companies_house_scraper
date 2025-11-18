@@ -35,7 +35,7 @@ This integration uses **3 separate** CH Developer Hub applications for independe
 | **App #2** | Companies REST API | 600 req / 5 min | `CH_COMPANIES_API_KEY` |
 | **App #3** | Officers REST API | 600 req / 5 min | `CH_OFFICERS_API_KEY` |
 
-**Total capacity**: 1800 API requests per 5 minutes (Companies + Officers combined)
+**Total capacity**: 1200 API requests per 5 minutes (Companies + Officers combined)
 
 ### Data Flow Diagram
 
