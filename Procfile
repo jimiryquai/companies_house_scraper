@@ -1,1 +1,1 @@
-web: python streaming_service.py
+web: python main.py

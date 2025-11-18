@@ -23,6 +23,31 @@ This system listens to the Companies House Streaming API for real-time company c
 - **Automatic Upsert**: Creates new records or updates existing ones automatically
 - **Railway Ready**: Deploy to Railway with zero configuration
 
+## Quick Start for Developers
+
+Get started with local development in under 5 minutes using Docker:
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/yourusername/companies_house_scraper.git
+cd companies_house_scraper
+
+# 2. Start PostgreSQL with Docker
+docker-compose up -d
+
+# 3. Configure environment
+cp .env.example .env
+# Edit .env with your Companies House API keys
+
+# 4. Install dependencies
+uv sync
+
+# 5. Run the service
+uv run python main.py
+```
+
+**For detailed setup instructions, troubleshooting, and development workflow, see [Local Development Guide](docs/LOCAL_DEVELOPMENT.md).**
+
 ## Architecture
 
 ### 3 Companies House Developer Hub Applications
@@ -72,9 +97,17 @@ cp .env.example .env
 
 ### PostgreSQL Setup
 
-#### Option 1: Railway (Recommended)
+#### Option 1: Docker (Recommended for Development)
 
-See `docs/RAILWAY_DEPLOYMENT.md` for complete Railway deployment guide with PostgreSQL.
+Quick start with Docker Compose:
+
+```bash
+docker-compose up -d
+```
+
+See [Local Development Guide](docs/LOCAL_DEVELOPMENT.md) for complete setup instructions, troubleshooting, and development workflow.
+
+#### Option 2: Railway (Production)
 
 Railway provides:
 - Free PostgreSQL database
@@ -82,25 +115,11 @@ Railway provides:
 - Zero-configuration deployment
 - n8n compatibility
 
-#### Option 2: Local PostgreSQL
+Push to GitHub and deploy from Railway dashboard.
 
-1. Install PostgreSQL locally
-2. Create a database:
-```bash
-createdb companies_house
-```
+#### Option 3: Manual PostgreSQL Installation
 
-3. Add connection URL to `.env`:
-```bash
-DATABASE_URL=postgresql://user:password@localhost:5432/companies_house
-```
-
-4. Test database connection:
-```bash
-uv run python test_database.py
-```
-
-The schema will be automatically initialized on first run.
+See [Local Development Guide](docs/LOCAL_DEVELOPMENT.md) for platform-specific installation instructions (macOS, Linux, Windows).
 
 ### Companies House API Setup
 
@@ -121,7 +140,7 @@ CH_OFFICERS_API_KEY=your_officers_key
 Start the streaming service:
 
 ```bash
-uv run python streaming_service.py
+uv run python main.py
 ```
 
 The service will:
@@ -156,7 +175,7 @@ Example output:
 
 ```
 companies_house_scraper/
-├── streaming_service.py          # Main service entry point
+├── main.py          # Main service entry point
 ├── test_database.py              # Database testing script
 ├── src/
 │   ├── database/                # PostgreSQL integration
@@ -319,11 +338,11 @@ MIT License - See LICENSE file for details
 
 ## Links
 
+- [Local Development Guide](docs/LOCAL_DEVELOPMENT.md) - Docker setup, troubleshooting, development workflow
+- [Database Schema](docs/database_README.md) - PostgreSQL schema documentation
+- [Architecture Diagram](docs/architecture/postgresql_streaming_architecture.svg) - System architecture
 - [Companies House Developer Hub](https://developer.company-information.service.gov.uk/)
 - [Companies House Streaming API Docs](https://developer-specs.company-information.service.gov.uk/streaming-api/reference)
 - [PostgreSQL Documentation](https://www.postgresql.org/docs/)
 - [Railway Documentation](https://docs.railway.app/)
 - [n8n PostgreSQL Integration](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.postgres/)
-- [Architecture Diagram](docs/architecture/postgresql_streaming_architecture.svg)
-- [Railway Deployment Guide](docs/RAILWAY_DEPLOYMENT.md)
-- [Database Schema](docs/database_README.md)
